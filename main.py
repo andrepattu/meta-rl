@@ -5,7 +5,7 @@ from utils import plot_learning_curve
 
 if __name__ == '__main__':
     env = gym.make('CartPole-v1')
-    N = 20
+    N = 20 # memory length
     batch_size = 5
     n_epochs = 4
     alpha = 0.0003
