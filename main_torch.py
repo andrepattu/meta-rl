@@ -1,9 +1,10 @@
 from ddpg_torch import Agent
 import gym
 import numpy as np
-from utils import plotLearning
+from utils import plot_learning_curve
 
-env = gym.make('LunarLanderContinuous-v2')
+# env = gym.make('LunarLanderContinuous-v2')
+env = gym.make('Pendulum-v1')
 agent = Agent(alpha=0.000025, beta=0.00025, input_dims=[8], tau=0.001, env=env,
               batch_size=64,  layer1_size=400, layer2_size=300, n_actions=2)
 
@@ -32,4 +33,5 @@ for i in range(1000):
           'trailing 100 games avg %.3f' % np.mean(score_history[-100:]))
 
 filename = 'plots/LunarLander-alpha000025-beta00025-400-300.png'
-plotLearning(score_history, filename, window=100)
+filename = 'plots/Pendulum.png'
+plot_learning_curve(score_history, filename, window=100)
