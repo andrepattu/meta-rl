@@ -1,8 +1,3 @@
-"""
-	This file contains the arguments to parse at command line.
-	File main.py will call get_args, which then the arguments
-	will be returned.
-"""
 import argparse
 
 def get_args():

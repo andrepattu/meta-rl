@@ -9,7 +9,7 @@ environment = 'MountainCarContinuous-v0'
 
 env = gym.make(environment)
 
-if environment == 'LunarLanderContinuous-v2':
+if environment == 'LunarLanderContinuous-v2': # use env.observation_space.shape[0] as input_dims and env.action_space.shape[0] as n_actions
     agent = Agent(alpha=0.000025, beta=0.00025, input_dims=[8], tau=0.001, env=env,
                 batch_size=64,  layer1_size=400, layer2_size=300, n_actions=2)
 elif environment == 'Pendulum-v1':

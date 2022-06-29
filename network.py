@@ -1,17 +1,9 @@
-"""
-	This file contains a neural network module for us to
-	define our actor and critic networks in PPO.
-"""
-
 import torch
 from torch import nn
 import torch.nn.functional as F
 import numpy as np
 
 class FeedForwardNN(nn.Module):
-	"""
-		A standard in_dim-64-64-out_dim Feed Forward Neural Network.
-	"""
 	def __init__(self, in_dim, out_dim):
 		"""
 			Initialize the network and set up the layers.
@@ -23,10 +15,17 @@ class FeedForwardNN(nn.Module):
 		"""
 		super(FeedForwardNN, self).__init__()
 
-		self.layer1 = nn.Linear(in_dim, 64)
-		self.layer2 = nn.Linear(64, 64)
-		self.layer3 = nn.Linear(64, out_dim)
 		self.device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
+
+		# THESE HYPERPARAMETERS ARE THE ONES THAT PRODUCED THE CURRENT BASELINE
+		# self.layer1 = nn.Linear(in_dim, 64)
+		# self.layer2 = nn.Linear(64, 64)
+		# self.layer3 = nn.Linear(64, out_dim)
+		
+		# THESE HYPERPARAMETERS ARE SUGGESTED AFTER REFACTORING TO IMPROVE THE BASELINE PERFORMANCE
+		self.layer1 = nn.Linear(in_dim, 128)
+		self.layer2 = nn.Linear(128, 128)
+		self.layer3 = nn.Linear(128, out_dim)
 
 	def forward(self, obs):
 		"""
@@ -34,7 +33,7 @@ class FeedForwardNN(nn.Module):
 			Parameters:
 				obs - observation to pass as input
 			Return:
-				output - the output of our forward pass
+				output - the output of the forward pass
 		"""
 		# Convert observation to tensor if it's a numpy array
 		if isinstance(obs, np.ndarray):

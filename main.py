@@ -1,8 +1,3 @@
-"""
-	This file is the executable for running PPO. It is based on this medium article: 
-	https://medium.com/@eyyu/coding-ppo-from-scratch-with-pytorch-part-1-4-613dfc1b14c8
-"""
-
 import gym
 import sys
 import torch
@@ -19,8 +14,8 @@ def train(env, hyperparameters, actor_model, critic_model):
 		Parameters:
 			env - the environment to train on
 			hyperparameters - a dict of hyperparameters to use, defined in main
-			actor_model - the actor model to load in if we want to continue training
-			critic_model - the critic model to load in if we want to continue training
+			actor_model - the actor model to load in for training
+			critic_model - the critic model to load in for training
 
 		Return:
 			None
@@ -43,8 +38,7 @@ def train(env, hyperparameters, actor_model, critic_model):
 		print(f"Training from scratch.", flush=True)
 
 	# Train the PPO model with a specified total timesteps
-	# NOTE: You can change the total timesteps here, I put a big number just because
-	# you can kill the process whenever you feel like PPO is converging
+	# kill the process whenever you feel like PPO is converging
 	model.learn(total_timesteps=200_000_000)
 
 def test(env, actor_model):
@@ -53,7 +47,7 @@ def test(env, actor_model):
 
 		Parameters:
 			env - the environment to test the policy on
-			actor_model - the actor model to load in
+			actor_model - the actor model to load in to test
 
 		Return:
 			None
@@ -65,50 +59,52 @@ def test(env, actor_model):
 		print(f"Didn't specify model file. Exiting.", flush=True)
 		sys.exit(0)
 
-	# Extract out dimensions of observation and action spaces
+	# Dimensions of observation and action spaces
 	obs_dim = env.observation_space.shape[0]
 	act_dim = env.action_space.shape[0]
 
-	# Build our policy the same way we build our actor model in PPO
+	# Build the policy network with correct dimensions
 	policy = FeedForwardNN(obs_dim, act_dim)
 
 	# Load in the actor model saved by the PPO algorithm
 	policy.load_state_dict(torch.load(actor_model))
 
-	# Evaluate our policy with a separate module, eval_policy, to demonstrate
-	# that once we are done training the model/policy with ppo.py, we no longer need
-	# ppo.py since it only contains the training algorithm. The model/policy itself exists
-	# independently as a binary file that can be loaded in with torch.
+	# seperate module that evalautes the trained policy weights
 	eval_policy(policy=policy, env=env, render=True)
 
 def main(args):
 	"""
-		The main function to run.
-
 		Parameters:
 			args - the arguments parsed from command line
 
 		Return:
 			None
 	"""
-	# NOTE: Here's where you can set hyperparameters for PPO. I don't include them as part of
-	# ArgumentParser because it's too annoying to type them every time at command line. Instead, you can change them here.
-	# To see a list of hyperparameters, look in ppo.py at function _init_hyperparameters
+	# THESE HYPERPARAMETERS ARE THE ONES THAT PRODUCED THE CURRENT BASELINE
+	# hyperparameters = {
+	# 			'timesteps_per_batch': 2048, 
+	# 			'max_timesteps_per_episode': 200, 
+	# 			'gamma': 0.99, 
+	# 			'n_updates_per_iteration': 10,
+	# 			'lr': 3e-4, 
+	# 			'clip': 0.2,
+	# 			'render': False, # True
+	# 			'render_every_i': 10
+	# 		  }
+
+	# THESE HYPERPARAMETERS ARE SUGGESTED AFTER REFACTORING TO IMPROVE THE BASELINE PERFORMANCE
 	hyperparameters = {
-				'timesteps_per_batch': 2048, 
-				'max_timesteps_per_episode': 200, 
-				'gamma': 0.99, 
-				'n_updates_per_iteration': 10,
-				'lr': 3e-4, 
-				'clip': 0.2,
-				'render': False, # True
-				'render_every_i': 10
+				'timesteps_per_batch': 4096, # Number of timesteps to run per batch
+				'timesteps_per_episode': 256, # Number of timesteps per episode
+				'gamma': 0.95, # Discount factor to be applied when calculating Rewards-To-Go 
+				'num_epochs': 15, # Number of epochs to update actor/critic per iteration
+				'alph': 3e-3, # alpha or learning rate
+				'clip': 0.1, # Threshold to clip the ratio during SGA
+				'render': False, # Render the human readable environment during rollout?
+				'render_every_i': 100 # how often to render the environment
 			  }
 
-	# Creates the environment we'll be running. If you want to replace with your own
-	# custom environment, note that it must inherit Gym and have both continuous
-	# observation and action spaces.
-
+	# gym env must have both continuous observation and action spaces.
 	env = gym.make('Pendulum-v1')
 	# env = gym.make('MountainCarContinuous-v0')
 	# env = gym.make('LunarLanderContinuous-v2')
