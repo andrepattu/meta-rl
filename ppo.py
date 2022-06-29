@@ -46,9 +46,9 @@ class PPO:
 		self.actor = policy_class(self.obs_dim, self.act_dim)                                                   # ALG STEP 1
 		self.critic = policy_class(self.obs_dim, 1)
 
-		# self.device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
-		# self.actor.to(self.device)
-		# self.critic.to(self.device)
+		self.device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
+		self.actor.to(self.device)
+		self.critic.to(self.device)
 
 		# Initialize optimizers for actor and critic
 		self.actor_optim = Adam(self.actor.parameters(), lr=self.lr)
@@ -56,7 +56,7 @@ class PPO:
 
 		# Initialize the covariance matrix used to query the actor for actions
 		self.cov_var = torch.full(size=(self.act_dim,), fill_value=0.5)
-		self.cov_mat = torch.diag(self.cov_var)
+		self.cov_mat = torch.diag(self.cov_var).to(self.device)
 
 		# This logger will help us with printing out summaries of each iteration
 		self.logger = {
@@ -121,7 +121,7 @@ class PPO:
 				# here's a great explanation: 
 				# https://cs.stackexchange.com/questions/70518/why-do-we-use-the-log-in-gradient-based-reinforcement-algorithms
 				# TL;DR makes gradient ascent easier behind the scenes.
-				ratios = torch.exp(curr_log_probs - batch_log_probs)
+				ratios = torch.exp(curr_log_probs - batch_log_probs).to(self.device)
 
 				# Calculate surrogate losses.
 				surr1 = ratios * A_k
@@ -152,12 +152,12 @@ class PPO:
 
 			# Save our model if it's time
 			if i_so_far % self.save_freq == 0:
-				torch.save(self.actor.state_dict(), 'test.pth')
-				torch.save(self.critic.state_dict(), 'test.pth')
+				torch.save(self.actor.state_dict(), 'models/test_ppo_actor.pth')
+				torch.save(self.critic.state_dict(), 'models/test_ppo_critic.pth')
 
 				x = [i+1 for i in range(len(self.logger['score_history']))]
 				# plot graph of average episodic return
-				plot_learning_curve(x, self.logger['score_history'], "test.png")
+				plot_learning_curve(x, self.logger['score_history'], "plots/test.png")
 
 	def rollout(self):
 		"""
@@ -229,9 +229,9 @@ class PPO:
 			batch_rews.append(ep_rews)
 
 		# Reshape data as tensors in the shape specified in function description, before returning
-		batch_obs = torch.tensor(batch_obs, dtype=torch.float)
-		batch_acts = torch.tensor(batch_acts, dtype=torch.float)
-		batch_log_probs = torch.tensor(batch_log_probs, dtype=torch.float)
+		batch_obs = torch.tensor(np.array(batch_obs), dtype=torch.float, device=self.device)
+		batch_acts = torch.tensor(np.array(batch_acts), dtype=torch.float, device=self.device)
+		batch_log_probs = torch.tensor(np.array(batch_log_probs), dtype=torch.float, device=self.device)
 		batch_rtgs = self.compute_rtgs(batch_rews)                                                              # ALG STEP 4
 
 		# Log the episodic returns and episodic lengths in this batch.
@@ -264,7 +264,7 @@ class PPO:
 				batch_rtgs.insert(0, discounted_reward)
 
 		# Convert the rewards-to-go into a tensor
-		batch_rtgs = torch.tensor(batch_rtgs, dtype=torch.float)
+		batch_rtgs = torch.tensor(batch_rtgs, dtype=torch.float).to(self.device)
 
 		return batch_rtgs
 
@@ -292,7 +292,7 @@ class PPO:
 		log_prob = dist.log_prob(action)
 
 		# Return the sampled action and the log probability of that action in our distribution
-		return action.detach().numpy(), log_prob.detach()
+		return torch.Tensor.cpu(action).detach().numpy(), torch.Tensor.cpu(log_prob).detach().numpy()
 
 	def evaluate(self, batch_obs, batch_acts):
 		"""
@@ -309,7 +309,7 @@ class PPO:
 				log_probs - the log probabilities of the actions taken in batch_acts given batch_obs
 		"""
 		# Query critic network for a value V for each batch_obs. Shape of V should be same as batch_rtgs
-		V = self.critic(batch_obs).squeeze()
+		V = self.critic(batch_obs).squeeze().to(self.device)
 
 		# Calculate the log probabilities of batch actions using most recent actor network.
 		# This segment of code is similar to that in get_action()
@@ -378,7 +378,7 @@ class PPO:
 		i_so_far = self.logger['i_so_far']
 		avg_ep_lens = np.mean(self.logger['batch_lens'])
 		avg_ep_rews = np.mean([np.sum(ep_rews) for ep_rews in self.logger['batch_rews']])
-		avg_actor_loss = np.mean([losses.float().mean() for losses in self.logger['actor_losses']])
+		avg_actor_loss = np.mean([torch.Tensor.cpu(losses).float().mean() for losses in self.logger['actor_losses']])
 
 		# Round decimal places for more aesthetic logging messages
 		avg_ep_lens = str(round(avg_ep_lens, 2))
