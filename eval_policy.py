@@ -1,11 +1,3 @@
-"""
-	This file is used only to evaluate our trained policy/actor after
-	training in main.py with ppo.py. I wrote this file to demonstrate
-	that our trained policy exists independently of our learning algorithm,
-	which resides in ppo.py. Thus, we can test our trained policy without 
-	relying on ppo.py.
-"""
-
 def _log_summary(ep_len, ep_ret, ep_num):
 		"""
 			Print to stdout what we've logged so far in the most recent episode.
@@ -41,15 +33,9 @@ def rollout(policy, env, render):
 		Return:
 			A generator object rollout, or iterable, which will return the latest
 			episodic length and return on each iteration of the generator.
-
-		Note:
-			If you're unfamiliar with Python generators, check this out:
-				https://wiki.python.org/moin/Generators
-			If you're unfamiliar with Python "yield", check this out:
-				https://stackoverflow.com/questions/231767/what-does-the-yield-keyword-do
 	"""
-	# Rollout until user kills process
-	while True:
+	# tests for 10 iterations
+	for _ in range(10):
 		obs = env.reset()
 		done = False
 
@@ -84,8 +70,7 @@ def eval_policy(policy, env, render=False):
 	"""
 		The main function to evaluate our policy with. It will iterate a generator object
 		"rollout", which will simulate each episode and return the most recent episode's
-		length and return. We can then log it right after. And yes, eval_policy will run
-		forever until you kill the process. 
+		length and return. We can then log it right after.
 
 		Parameters:
 			policy - The trained policy to test, basically another name for our actor model
@@ -94,9 +79,13 @@ def eval_policy(policy, env, render=False):
 
 		Return:
 			None
-
-		NOTE: To learn more about generators, look at rollout's function description
 	"""
+	total_score = 0
+
 	# Rollout with the policy and environment, and log each episode's data
 	for ep_num, (ep_len, ep_ret) in enumerate(rollout(policy, env, render)):
 		_log_summary(ep_len=ep_len, ep_ret=ep_ret, ep_num=ep_num)
+		total_score += ep_ret
+
+	avg_score = total_score / 10
+	print(f"average score over 10 iterations: {avg_score}")

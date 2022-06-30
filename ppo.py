@@ -11,7 +11,7 @@ from torch.distributions import MultivariateNormal
 from utils import plot_learning_curve
 
 class FeedForwardNN(nn.Module):
-	def __init__(self, in_dim, out_dim):
+	def __init__(self, in_dim, out_dim, mode):
 		"""
 			Initialize the network and set up the layers.
 			Parameters:
@@ -22,17 +22,18 @@ class FeedForwardNN(nn.Module):
 		"""
 		super(FeedForwardNN, self).__init__()
 
+		self.mode = mode # training or testing?
 		self.device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
 
 		# THESE HYPERPARAMETERS ARE THE ONES THAT PRODUCED THE CURRENT BASELINE
-		# self.layer1 = nn.Linear(in_dim, 64)
-		# self.layer2 = nn.Linear(64, 64)
-		# self.layer3 = nn.Linear(64, out_dim)
+		self.layer1 = nn.Linear(in_dim, 64)
+		self.layer2 = nn.Linear(64, 64)
+		self.layer3 = nn.Linear(64, out_dim)
 		
-		# THESE HYPERPARAMETERS ARE SUGGESTED AFTER REFACTORING TO IMPROVE THE BASELINE PERFORMANCE
-		self.layer1 = nn.Linear(in_dim, 128)
-		self.layer2 = nn.Linear(128, 128)
-		self.layer3 = nn.Linear(128, out_dim)
+		# # THESE HYPERPARAMETERS ARE SUGGESTED AFTER REFACTORING TO IMPROVE THE BASELINE PERFORMANCE
+		# self.layer1 = nn.Linear(in_dim, 128)
+		# self.layer2 = nn.Linear(128, 128)
+		# self.layer3 = nn.Linear(128, out_dim)
 
 	def forward(self, obs):
 		"""
@@ -43,7 +44,9 @@ class FeedForwardNN(nn.Module):
 				output - the output of the forward pass
 		"""
 		# Convert observation to tensor if it's a numpy array
-		if isinstance(obs, np.ndarray):
+		if isinstance(obs, np.ndarray) and self.mode == "testing": # with cpu
+			obs = torch.tensor(obs, dtype=torch.float)
+		elif isinstance(obs, np.ndarray) and self.mode == "training": # with gpu
 			obs = torch.tensor(obs, dtype=torch.float).to(self.device)
 
 		activation1 = F.relu(self.layer1(obs))
@@ -73,8 +76,8 @@ class PPO:
 		self.act_dim = env.action_space.shape[0]
 
 		# Initialize actor and critic networks
-		self.actor = policy_class(self.obs_dim, self.act_dim)                                                   # ALG STEP 1
-		self.critic = policy_class(self.obs_dim, 1)
+		self.actor = policy_class(self.obs_dim, self.act_dim, mode="training") # set mode flag to training by default                                                 
+		self.critic = policy_class(self.obs_dim, 1, mode="training")  # set mode flag to training by default 
 
 		# Set both networks to gpu device
 		self.device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
