@@ -1,22 +1,23 @@
-from ddpg_torch import Agent
 import gym
 import numpy as np
+
+from ddpg import DDPG
 from utils import plot_learning_curve
 
-# environment = 'LunarLanderContinuous-v2'
+environment = 'LunarLanderContinuous-v2'
 # environment = 'Pendulum-v1'
-environment = 'MountainCarContinuous-v0'
+# environment = 'MountainCarContinuous-v0'
 
 env = gym.make(environment)
 
 if environment == 'LunarLanderContinuous-v2': # use env.observation_space.shape[0] as input_dims and env.action_space.shape[0] as n_actions
-    agent = Agent(alpha=0.000025, beta=0.00025, input_dims=[8], tau=0.001, env=env,
+    agent = DDPG(alpha=0.000025, beta=0.00025, input_dims=[8], tau=0.001, env=env,
                 batch_size=64,  layer1_size=400, layer2_size=300, n_actions=2)
 elif environment == 'Pendulum-v1':
-    agent = Agent(alpha=0.000025, beta=0.00025, input_dims=[3], tau=0.001, env=env,
+    agent = DDPG(alpha=0.000025, beta=0.00025, input_dims=[3], tau=0.001, env=env,
                 batch_size=64,  layer1_size=400, layer2_size=300, n_actions=1) 
 elif environment == 'MountainCarContinuous-v0':
-    agent = Agent(alpha=0.000025, beta=0.00025, input_dims=[2], tau=0.001, env=env,
+    agent = DDPG(alpha=0.000025, beta=0.00025, input_dims=[2], tau=0.001, env=env,
                 batch_size=64,  layer1_size=400, layer2_size=300, n_actions=1) 
 
 #agent.load_models()

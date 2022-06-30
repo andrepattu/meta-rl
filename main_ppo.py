@@ -3,8 +3,7 @@ import sys
 import torch
 
 from arguments import get_args
-from ppo import PPO
-from network import FeedForwardNN
+from ppo import PPO, FeedForwardNN
 from eval_policy import eval_policy
 
 def train(env, hyperparameters, actor_model, critic_model):
