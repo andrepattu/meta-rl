@@ -1,4 +1,5 @@
 import gym
+import gym.wrappers as wrap
 import sys
 import torch
 
@@ -66,7 +67,7 @@ def test(env, actor_model):
 	policy = FeedForwardNN(obs_dim, act_dim, mode="testing")
 
 	# Load in the actor model saved by the PPO algorithm
-	policy.load_state_dict(torch.load(actor_model))
+	policy.load_state_dict(torch.load(actor_model), strict=False)
 
 	# seperate module that evalautes the trained policy weights
 	eval_policy(policy=policy, env=env, render=True)
@@ -112,7 +113,9 @@ def main(args):
 	if args.mode == 'train':
 		train(env=env, hyperparameters=hyperparameters, actor_model=args.actor_model, critic_model=args.critic_model)
 	else:
-		test(env=env, actor_model=args.actor_model)
+		test_env = wrap.ResizeObservation(env, shape=(2,1)) # pendulum (3,1), MountainCar obs_dim (2,1)
+		# LunarLander does not work because of different actions space
+		test(env=test_env, actor_model=args.actor_model)
 
 if __name__ == '__main__':
 	args = get_args() # Parse arguments from command line

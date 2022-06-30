@@ -45,6 +45,7 @@ class FeedForwardNN(nn.Module):
 		"""
 		# Convert observation to tensor if it's a numpy array
 		if isinstance(obs, np.ndarray) and self.mode == "testing": # with cpu
+			obs = np.reshape(obs, -1) # flatten obs array before converting to tensor
 			obs = torch.tensor(obs, dtype=torch.float)
 		elif isinstance(obs, np.ndarray) and self.mode == "training": # with gpu
 			obs = torch.tensor(obs, dtype=torch.float).to(self.device)
