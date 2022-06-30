@@ -4,24 +4,15 @@ import numpy as np
 from ddpg import DDPG
 from utils import plot_learning_curve
 
-environment = 'LunarLanderContinuous-v2'
-# environment = 'Pendulum-v1'
-# environment = 'MountainCarContinuous-v0'
+env_name = 'LunarLanderContinuous-v2'
+# env_name = 'Pendulum-v1'
+# env_name = 'MountainCarContinuous-v0'
 
-env = gym.make(environment)
-
-if environment == 'LunarLanderContinuous-v2': # use env.observation_space.shape[0] as input_dims and env.action_space.shape[0] as n_actions
-    agent = DDPG(alpha=0.000025, beta=0.00025, input_dims=[8], tau=0.001, env=env,
-                batch_size=64,  layer1_size=400, layer2_size=300, n_actions=2)
-elif environment == 'Pendulum-v1':
-    agent = DDPG(alpha=0.000025, beta=0.00025, input_dims=[3], tau=0.001, env=env,
-                batch_size=64,  layer1_size=400, layer2_size=300, n_actions=1) 
-elif environment == 'MountainCarContinuous-v0':
-    agent = DDPG(alpha=0.000025, beta=0.00025, input_dims=[2], tau=0.001, env=env,
-                batch_size=64,  layer1_size=400, layer2_size=300, n_actions=1) 
-
-#agent.load_models()
-np.random.seed(0)
+env = gym.make(env_name)
+obs_dim = env.observation_space.shape[0]
+act_dim = env.action_space.shape[0]
+agent = DDPG(alph=0.000025, beta=0.00025, in_dim=[obs_dim], tau=0.001, env_name=env_name,
+            batch_size=64,  layer1_size=400, layer2_size=300, act_dim=act_dim)
 
 score_history = []
 best_score = env.reward_range[0]
@@ -31,11 +22,11 @@ for i in range(1000):
     score = 0
     while not done:
         act = agent.choose_action(obs)
-        new_state, reward, done, info = env.step(act)
-        agent.remember(obs, act, reward, new_state, int(done))
+        next_state, reward, done, info = env.step(act)
+        agent.remember(obs, act, reward, next_state, int(done))
         agent.learn()
         score += reward
-        obs = new_state
+        obs = next_state
         #env.render()
     score_history.append(score)
     avg_score = np.mean(score_history[-100:])
@@ -45,8 +36,8 @@ for i in range(1000):
         agent.save_models()
 
     if i % 10 == 0:
-        print('episode ', i, 'score %.2f' % score, 'trailing 100 games avg %.3f' % np.mean(score_history[-100:]))
+        print(f'episode: {i}, score: {score:.2f}, trailing 100 games avg: {np.mean(score_history[-100:]):.2f}')
 
         x = [i+1 for i in range(len(score_history))]
-        filename = f'plots/{environment}.png'
+        filename = f'plots/{env_name}_test.png'
         plot_learning_curve(x, score_history, filename, window=100)
