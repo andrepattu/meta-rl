@@ -1,239 +1,408 @@
-
-import os
+import gym
+import time
 import numpy as np
-import torch as T
+
+import torch
 import torch.nn as nn
-import torch.optim as optim
-from torch.distributions.categorical import Categorical
+import torch.nn.functional as F
+from torch.optim import Adam
+from torch.distributions import MultivariateNormal
 
-class PPOMemory:
-    def __init__(self, batch_size):
-        self.states = []
-        self.probs = [] # log probs
-        self.vals = []
-        self.actions = []
-        self.rewards = []
-        self.dones = [] # terminal flags
+from utils import plot_learning_curve
 
-        self.batch_size = batch_size
+class FeedForwardNN(nn.Module):
+	def __init__(self, in_dim, out_dim, mode):
+		"""
+			Initialize the network and set up the layers.
+			Parameters:
+				in_dim - input dimensions as an int
+				out_dim - output dimensions as an int
+			Return:
+				None
+		"""
+		super(FeedForwardNN, self).__init__()
 
-    def generate_batches(self):
-        n_states = len(self.states)
-        batch_start = np.arange(0, n_states, self.batch_size) # zero to n_states with batch_size as step size
-        indices = np.arange(n_states, dtype=np.int64)
-        np.random.shuffle(indices)
-        batches = [indices[i:i+self.batch_size] for i in batch_start]
+		self.mode = mode # training or testing?
+		self.device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
 
-        return np.array(self.states),\
-                np.array(self.actions),\
-                np.array(self.probs),\
-                np.array(self.vals),\
-                np.array(self.rewards),\
-                np.array(self.dones),\
-                batches
+		# THESE HYPERPARAMETERS ARE THE ONES THAT PRODUCED THE CURRENT BASELINE
+		self.layer1 = nn.Linear(in_dim, 64)
+		self.layer2 = nn.Linear(64, 64)
+		self.layer3 = nn.Linear(64, out_dim)
+		
+		# # THESE HYPERPARAMETERS ARE SUGGESTED AFTER REFACTORING TO IMPROVE THE BASELINE PERFORMANCE
+		# self.layer1 = nn.Linear(in_dim, 128)
+		# self.layer2 = nn.Linear(128, 128)
+		# self.layer3 = nn.Linear(128, out_dim)
 
-    def store_memory(self, state, action, probs, vals, reward, done):
-        self.states.append(state)
-        self.actions.append(action)
-        self.probs.append(probs)
-        self.vals.append(vals)
-        self.rewards.append(reward)
-        self.dones.append(done)
+	def forward(self, obs):
+		"""
+			Runs a forward pass on the neural network.
+			Parameters:
+				obs - observation to pass as input
+			Return:
+				output - the output of the forward pass
+		"""
+		# Convert observation to tensor if it's a numpy array
+		if isinstance(obs, np.ndarray) and self.mode == "testing": # with cpu
+			obs = np.reshape(obs, -1) # flatten obs array before converting to tensor
+			obs = torch.tensor(obs, dtype=torch.float)
+		elif isinstance(obs, np.ndarray) and self.mode == "training": # with gpu
+			obs = torch.tensor(obs, dtype=torch.float).to(self.device)
 
-    def clear_memory(self):
-        self.states = []
-        self.probs = []
-        self.actions = []
-        self.rewards = []
-        self.dones = []
-        self.vals = []
+		activation1 = F.relu(self.layer1(obs))
+		activation2 = F.relu(self.layer2(activation1))
+		output = self.layer3(activation2)
 
-class ActorNetwork(nn.Module): # decides what to do based on current state
-    def __init__(self, n_actions, input_dims, alpha,
-            fc1_dims=256, fc2_dims=256, chkpt_dir='models'):
-        super(ActorNetwork, self).__init__()
+		return output
 
-        self.checkpoint_file = os.path.join(chkpt_dir, 'actor_ppo')
-        self.actor = nn.Sequential(
-                nn.Linear(*input_dims, fc1_dims),
-                nn.ReLU(),
-                nn.Linear(fc1_dims, fc2_dims),
-                nn.ReLU(),
-                nn.Linear(fc2_dims, n_actions),
-                nn.Softmax(dim=-1)
-        )
+class PPO:
+	def __init__(self, policy_class, env, **hyperparameters):
+		"""
+			Initializes the PPO agent with the defined hyperparameters.
+			Parameters:
+				policy_class - the policy class to use for the actor/critic networks.
+				env - the environment to train on.
+				hyperparameters - all extra arguments passed into PPO that should be hyperparameters.
+			Returns:
+				None
+		"""
+		# Make sure the input environment is compatible; continuous action and observation spaces
+		assert(type(env.observation_space) == gym.spaces.Box)
+		assert(type(env.action_space) == gym.spaces.Box)
 
-        self.optimizer = optim.Adam(self.parameters(), lr=alpha)
-        self.device = T.device('cuda:0' if T.cuda.is_available() else 'cpu')
-        self.to(self.device)
+		self._init_hyperparameters(hyperparameters)
+		self.env = env
+		self.obs_dim = env.observation_space.shape[0]
+		self.act_dim = env.action_space.shape[0]
 
-    def forward(self, state):
-        dist = self.actor(state)
-        dist = Categorical(dist)
-        
-        return dist
+		# Initialize actor and critic networks
+		self.actor = policy_class(self.obs_dim, self.act_dim, mode="training") # set mode flag to training by default                                                 
+		self.critic = policy_class(self.obs_dim, 1, mode="training")  # set mode flag to training by default 
 
-    def save_checkpoint(self):
-        T.save(self.state_dict(), self.checkpoint_file)
+		# Set both networks to gpu device
+		self.device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
+		self.actor.to(self.device)
+		self.critic.to(self.device)
 
-    def load_checkpoint(self):
-        self.load_state_dict(T.load(self.checkpoint_file))
+		# Initialize optimizers for actor and critic
+		self.actor_optim = Adam(self.actor.parameters(), lr=self.alph)
+		self.critic_optim = Adam(self.critic.parameters(), lr=self.alph)
 
-class CriticNetwork(nn.Module): # evaluates states only
-    def __init__(self, input_dims, alpha, 
-            fc1_dims=256, fc2_dims=256, chkpt_dir='models'):
-        super(CriticNetwork, self).__init__()
+		# Initialize the covariance matrix used to query the actor for actions
+		self.cov_var = torch.full(size=(self.act_dim,), fill_value=0.5)
+		self.cov_mat = torch.diag(self.cov_var).to(self.device)
 
-        self.checkpoint_file = os.path.join(chkpt_dir, 'critic_ppo')
-        self.critic = nn.Sequential(
-                nn.Linear(*input_dims, fc1_dims),
-                nn.ReLU(),
-                nn.Linear(fc1_dims, fc2_dims),
-                nn.ReLU(),
-                nn.Linear(fc2_dims, 1)
-        )
+		# Logs summaries of each iteration
+		self.logger = {
+			'delta_t': time.time_ns(),
+			'elapsed_timesteps': 0,  # elapsed timesteps
+			'elapsed_iterations': 0, # iterations so far
+			'batch_lengths': [],     # episodic lengths in batch
+			'batch_returns': [],     # episodic returns in batch
+			'actor_losses': [],      # actor losses in current iteration
+		}
 
-        self.optimizer = optim.Adam(self.parameters(), lr=alpha)
-        self.device = T.device('cuda:0' if T.cuda.is_available() else 'cpu')
-        self.to(self.device)
+	def learn(self, total_timesteps):
+		"""
+			Train the actor and critic networks.
+			Parameters:
+				total_timesteps - the total number of timesteps to train for
+			Return:
+				None
+		"""
+		print(f"Learning... Running {self.timesteps_per_episode} timesteps per episode, ", end='')
+		print(f"{self.timesteps_per_batch} timesteps per batch for a total of {total_timesteps} timesteps")
+		elapsed_timesteps = 0 
+		elapsed_iterations = 0 
 
-    def forward(self, state):
-        value = self.critic(state)
+		self.logger['score_history'] = []
+		
+		while elapsed_timesteps < total_timesteps:                                                                      
+			# Collecting the batch simulations (set of trajectories)
+			batch_obs, batch_acts, batch_log_probs, batch_rtgs, batch_lengths = self.rollout()                     
 
-        return value
+			self.logger['score_history'].append(self.logger['score'])
 
-    def save_checkpoint(self):
-        T.save(self.state_dict(), self.checkpoint_file)
+			# Calculate how many timesteps we collected this batch
+			elapsed_timesteps += np.sum(batch_lengths)
 
-    def load_checkpoint(self):
-        self.load_state_dict(T.load(self.checkpoint_file))
+			# Increment the number of iterations
+			elapsed_iterations += 1
 
-class Agent:
-    def __init__(self, n_actions, input_dims, gamma=0.99, alpha=0.0003, gae_lambda=0.95,
-            policy_clip=0.2, batch_size=64, n_epochs=10):
-        self.gamma = gamma
-        self.policy_clip = policy_clip
-        self.n_epochs = n_epochs
-        self.gae_lambda = gae_lambda # gae is generalized advantage estimation
+			# Logging elapsed timesteps and iterations
+			self.logger['elapsed_timesteps'] = elapsed_timesteps
+			self.logger['elapsed_iterations'] = elapsed_iterations
 
-        self.actor = ActorNetwork(n_actions, input_dims, alpha)
-        self.critic = CriticNetwork(input_dims, alpha)
-        self.memory = PPOMemory(batch_size)
-       
-    def remember(self, state, action, probs, vals, reward, done):
-        self.memory.store_memory(state, action, probs, vals, reward, done)
+			# Compute advantage estimates at k-th iteration
+			values, _ = self.evaluate(batch_obs, batch_acts)
+			Adv_k = batch_rtgs - values.detach()                                                                       
 
-    def save_models(self):
-        print('... saving models ...')
-        self.actor.save_checkpoint()
-        self.critic.save_checkpoint()
+			# Normalize advantages to decrease variance and improve convergence much more stable and faster.
+			Adv_k = (Adv_k - Adv_k.mean()) / (Adv_k.std() + 1e-10)
 
-    def load_models(self):
-        print('... loading models ...')
-        self.actor.load_checkpoint()
-        self.critic.load_checkpoint()
+			# Update policy for number of epochs
+			for _ in range(self.num_epochs):                                                       
+				# Calculate values_phi and pi_theta(a_t | s_t)
+				values, curr_log_probs = self.evaluate(batch_obs, batch_acts)
 
-    def choose_action(self, observation):
-        state = T.tensor(np.array(observation), dtype=T.float).to(self.actor.device)
+				# Calculate the ratio pi_theta(a_t | s_t) / pi_theta_k(a_t | s_t)
+				ratios = torch.exp(curr_log_probs - batch_log_probs).to(self.device)
 
-        dist = self.actor(state)
-        value = self.critic(state)
-        action = dist.sample()
+				# Calculate surrogate losses.
+				surr1 = ratios * Adv_k
+				surr2 = torch.clamp(ratios, 1 - self.clip, 1 + self.clip) * Adv_k
 
-        probs = T.squeeze(dist.log_prob(action)).item()
-        action = T.squeeze(action).item()
-        value = T.squeeze(value).item()
+				# Calculate actor and critic losses.
+				actor_loss = (-torch.min(surr1, surr2)).mean()
+				critic_loss = nn.MSELoss()(values, batch_rtgs)
 
-        return action, probs, value
+				# Calculate gradients and perform backward propagation for actor network
+				self.actor_optim.zero_grad()
+				actor_loss.backward(retain_graph=True)
+				self.actor_optim.step()
 
-    def learn(self):
-        for _ in range(self.n_epochs):
-            state_arr, action_arr, old_prob_arr, vals_arr,\
-            reward_arr, dones_arr, batches = self.memory.generate_batches()
+				# Calculate gradients and perform backward propagation for critic network
+				self.critic_optim.zero_grad()
+				critic_loss.backward()
+				self.critic_optim.step()
 
-            values = vals_arr
-            advantage = np.zeros(len(reward_arr), dtype=np.float32)
+				# Log actor losses
+				self.logger['actor_losses'].append(actor_loss.detach())
 
-            for t in range(len(reward_arr)-1):
-                discount = 1
-                a_t = 0
-                for k in range(t, len(reward_arr)-1):
-                    a_t += discount*(reward_arr[k] + self.gamma*values[k+1]*\
-                            (1-int(dones_arr[k])) - values[k])
-                    discount *= self.gamma*self.gae_lambda # decay of discount factor using gae_lambda
-                advantage[t] = a_t
-            advantage = T.tensor(advantage).to(self.actor.device)
+			# Print a summary of the training
+			self._log_summary()
 
-            values = T.tensor(values).to(self.actor.device)
-            for batch in batches:
-                states = T.tensor(state_arr[batch], dtype=T.float).to(self.actor.device)
-                old_probs = T.tensor(old_prob_arr[batch]).to(self.actor.device)
-                actions = T.tensor(action_arr[batch]).to(self.actor.device)
+			# Save the models if it's time
+			if elapsed_iterations % self.save_freq == 0:
+				torch.save(self.actor.state_dict(), 'models/test_ppo_actor.pth')
+				torch.save(self.critic.state_dict(), 'models/test_ppo_critic.pth')
 
-                dist = self.actor(states)
-                critic_value = self.critic(states)
+				# plot graph of average episodic return
+				x = [i+1 for i in range(len(self.logger['score_history']))] # x is the graph's x-axis value
+				plot_learning_curve(x, self.logger['score_history'], "plots/test.png")
 
-                critic_value = T.squeeze(critic_value)
+	def rollout(self):
+		"""
+			Collect the data from each simulated batch. Since this is an on-policy algorithm, we'll need to collect a fresh batch
+			of data each time we iterate the actor/critic networks.
+			Parameters:
+				None
+			Return:
+				batch_obs - observations collected this batch. Shape: (number of timesteps, dimension of observation)
+				batch_acts - actions collected this batch. Shape: (number of timesteps, dimension of action)
+				batch_log_probs - log probabilities of each action taken this batch. Shape: (number of timesteps)
+				batch_rtgs - the Rewards-To-Go of each timestep in this batch. Shape: (number of timesteps)
+				batch_lengths - the lengths of each episode this batch. Shape: (number of episodes)
+		"""
+		batch_obs = []
+		batch_acts = []
+		batch_log_probs = []
+		batch_returns = []
+		batch_rtgs = []
+		batch_lengths = []
+		ep_rewards = [] # rewards collected per episode
+		t = 0 # keeps track of elapsed timesteps
 
-                new_probs = dist.log_prob(actions)
-                prob_ratio = (new_probs - old_probs).exp()
-                weighted_probs = advantage[batch] * prob_ratio
-                weighted_clipped_probs = T.clamp(prob_ratio, 1-self.policy_clip,
-                        1+self.policy_clip)*advantage[batch]
-                actor_loss = -T.min(weighted_probs, weighted_clipped_probs).mean()
+		# Keep simulating until the agent has run more than or equal to specified timesteps per batch
+		while t < self.timesteps_per_batch:
+			ep_rewards = [] # reinitialize to be empty each batch
 
-                returns = advantage[batch] + values[batch]
-                critic_loss = (returns-critic_value)**2
-                critic_loss = critic_loss.mean()
+			# Reset the environment
+			obs = self.env.reset() # observation
+			done = False
 
-                total_loss = actor_loss + 0.5*critic_loss
-                self.actor.optimizer.zero_grad()
-                self.critic.optimizer.zero_grad()
-                total_loss.backward()
-                self.actor.optimizer.step()
-                self.critic.optimizer.step()
+			# Run an episode for the number of timesteps
+			for ep in range(self.timesteps_per_episode):
+				# If render is specified, render the environment
+				if self.render and (self.logger['elapsed_iterations'] % self.render_every_i == 0) and len(batch_lengths) == 0:
+					self.env.render()
 
-        self.memory.clear_memory()             
+				t += 1 # Increment timesteps ran this batch so far
 
+				# Track observations in this batch
+				batch_obs.append(obs)
 
-class Objective: # neural objective function
-    def __init__(self, input_dims, alpha, 
-            fc1_dims=256, fc2_dims=256, chkpt_dir='models'):
-        super(Objective, self).__init__()
+				# Calculate action and take a step in the env. 
+				action, log_prob = self.get_action(obs)
+				obs, reward, done, _ = self.env.step(action)
 
-        self.checkpoint_file = os.path.join(chkpt_dir, 'objective_ppo')
-        self.objective = nn.Sequential(
-                nn.Linear(*input_dims, fc1_dims),
-                nn.ReLU(),
-                nn.Linear(fc1_dims, fc2_dims),
-                nn.ReLU(),
-                nn.Linear(fc2_dims, 1)
-        )
+				# Track recent reward, action, and action log probability
+				ep_rewards.append(reward)
+				batch_acts.append(action)
+				batch_log_probs.append(log_prob)
 
-        self.optimizer = optim.Adam(self.parameters(), lr=alpha)
-        self.device = T.device('cuda:0' if T.cuda.is_available() else 'cpu')
-        self.to(self.device)
+				score = np.sum(ep_rewards)
+				score = round(score, 2)
+				self.logger['score'] = score
 
-    def forward(self, state):
-        value = self.objective(state)
+				if done:
+					break
 
-        return value
+			# Track episodic lengths and rewards
+			batch_lengths.append(ep + 1)
+			batch_returns.append(ep_rewards)
 
-    def save_checkpoint(self):
-        T.save(self.state_dict(), self.checkpoint_file)
+		# Reshape data as tensors in the shape specified in function description
+		batch_obs = torch.tensor(np.array(batch_obs), dtype=torch.float, device=self.device)
+		batch_acts = torch.tensor(np.array(batch_acts), dtype=torch.float, device=self.device)
+		batch_log_probs = torch.tensor(np.array(batch_log_probs), dtype=torch.float, device=self.device)
+		batch_rtgs = self.compute_rtgs(batch_returns)                                                              
 
-    def load_checkpoint(self):
-        self.load_state_dict(T.load(self.checkpoint_file))
+		# Log the episodic returns and episodic lengths in this batch.
+		self.logger['batch_returns'] = batch_returns
+		self.logger['batch_lengths'] = batch_lengths
 
-    def future_policy_value(self, obs, a, trans, seq_len, seq_mask, agent, opt):
-        """
-        Computes the value of a policy according to the critic when updated using the objective function
-        :param x: observations
-        :param a: actions
-        :param trans: entire tuple of transition (s_t, a_t, r_t, d_t, s_{t+1})
-        :param seq_len: Length of trajectories
-        :param seq_mask: Binary mask of trajectories
-        :param agent: agent to compute value for
-        :param opt: optimizer to use for the policy update
-        :return: tensor of batched future policy value
-        """
+		return batch_obs, batch_acts, batch_log_probs, batch_rtgs, batch_lengths
+
+	def compute_rtgs(self, batch_returns):
+		"""
+			Compute the Reward-To-Go of each timestep in a batch given the rewards.
+			Parameters:
+				batch_returns - the rewards in a batch, Shape: (number of episodes, number of timesteps per episode)
+			Return:
+				batch_rtgs - the rewards to go, Shape: (number of timesteps in batch)
+		"""
+		batch_rtgs = []
+
+		# Iterate through each episode
+		for ep_rewards in reversed(batch_returns):
+			discounted_reward = 0
+
+			# Iterate through all rewards in the episode. Iteration is backwards for smoother calculation of each discounted return 
+			for reward in reversed(ep_rewards):
+				discounted_reward = reward + discounted_reward * self.gamma
+				batch_rtgs.insert(0, discounted_reward)
+
+		# Convert the rewards-to-go into a tensor
+		batch_rtgs = torch.tensor(batch_rtgs, dtype=torch.float).to(self.device)
+
+		return batch_rtgs
+
+	def get_action(self, obs):
+		"""
+			Queries an action from the actor network, should be called from rollout.
+			Parameters:
+				obs - the observation at the current timestep
+			Return:
+				action - the action to take, as a numpy array
+				log_prob - the log probability of the selected action in the distribution
+		"""
+		# Query the actor network for a mean action
+		mean = self.actor(obs)
+
+		# Create a distribution with the mean action and std from the covariance matrix above.
+		dist = MultivariateNormal(mean, self.cov_mat)
+
+		# Sample an action from the distribution
+		action = dist.sample()
+
+		# Calculate the log probability for that action
+		log_prob = dist.log_prob(action)
+
+		# Return the sampled action and the log probability of that action in our distribution
+		return torch.Tensor.cpu(action).detach().numpy(), torch.Tensor.cpu(log_prob).detach().numpy()
+
+	def evaluate(self, batch_obs, batch_acts):
+		"""
+			Estimate the values of each observation, and the log probs of
+			each action in the most recent batch with the most recent
+			iteration of the actor network. Should be called from learn.
+			Parameters:
+				batch_obs - the observations from the most recently collected batch as a tensor.
+							Shape: (number of timesteps in batch, dimension of observation)
+				batch_acts - the actions from the most recently collected batch as a tensor.
+							Shape: (number of timesteps in batch, dimension of action)
+			Return:
+				values - the predicted values of batch_obs
+				log_probs - the log probabilities of the actions taken in batch_acts given batch_obs
+		"""
+		# Query critic network for a value for each batch_obs. Shape of values should be same as batch_rtgs
+		values = self.critic(batch_obs).squeeze().to(self.device)
+
+		# Calculate the log probabilities of batch actions using most recent actor network.
+		mean = self.actor(batch_obs)
+		dist = MultivariateNormal(mean, self.cov_mat)
+		log_probs = dist.log_prob(batch_acts)
+
+		return values, log_probs
+
+	def _init_hyperparameters(self, hyperparameters):
+		"""
+			Initialize default and custom values for hyperparameters
+			Parameters:
+				hyperparameters - the extra arguments included when creating the PPO model, should only include
+									hyperparameters defined below with custom values.
+			Return:
+				None
+		"""
+		# Initialize default values for hyperparameters
+		# Algorithm hyperparameters
+		self.timesteps_per_batch = 4800                 # Number of timesteps to run per batch
+		self.timesteps_per_episode = 1600           	# Number of timesteps per episode
+		self.num_epochs = 5                				# Number of epochs to update actor/critic per iteration
+		self.alph = 0.005                               # Alpha or learning rate
+		self.gamma = 0.95                               # Discount factor to be applied when calculating Rewards-To-Go
+		self.clip = 0.2                                 # Threshold to clip the ratio during SGA
+
+		# Miscellaneous parameters
+		self.render = True                              # Render the human readable environment during rollout?
+		self.render_every_i = 10                        # Only render every n iterations
+		self.save_freq = 10                             # How often we save in number of iterations
+		self.seed = None                                # Sets the seed of our program, used for reproducibility of results
+
+		# Change any default values to custom values for specified hyperparameters
+		for param, val in hyperparameters.items():
+			exec('self.' + param + ' = ' + str(val))
+
+		# Sets the seed if specified
+		if self.seed != None:
+			# Check if our seed is valid first
+			assert(type(self.seed) == int)
+
+			# Set the seed 
+			torch.manual_seed(self.seed)
+			print(f"Successfully set seed to {self.seed}")
+
+	def _log_summary(self):
+		"""
+			Print to stdout what we've logged so far in the most recent batch.
+			Parameters:
+				None
+			Return:
+				None
+		"""
+		# Calculate logging values. I use a few python shortcuts to calculate each value
+		# without explaining since it's not too important to PPO; feel free to look it over,
+		# and if you have any questions you can email me (look at bottom of README)
+		delta_t = self.logger['delta_t']
+		self.logger['delta_t'] = time.time_ns()
+		delta_t = (self.logger['delta_t'] - delta_t) / 1e9
+		delta_t = str(round(delta_t, 2))
+
+		elapsed_timesteps = self.logger['elapsed_timesteps']
+		elapsed_iterations = self.logger['elapsed_iterations']
+		avg_ep_lens = np.mean(self.logger['batch_lengths'])
+		avg_ep_rewards = np.mean([np.sum(ep_rewards) for ep_rewards in self.logger['batch_returns']])
+		avg_actor_loss = np.mean([torch.Tensor.cpu(losses).float().mean() for losses in self.logger['actor_losses']])
+
+		# Round decimal places for more aesthetic logging messages
+		avg_ep_lens = str(round(avg_ep_lens, 2))
+		avg_ep_rewards = str(round(avg_ep_rewards, 2))
+		avg_actor_loss = str(round(avg_actor_loss, 5))
+
+		# Print logging statements
+		print(flush=True)
+		print(f"-------------------- Iteration #{elapsed_iterations} --------------------", flush=True)
+		print(f"Average Episodic Length: {avg_ep_lens}", flush=True)
+		print(f"Average Episodic Return: {avg_ep_rewards}", flush=True)
+		print(f"Average Loss: {avg_actor_loss}", flush=True)
+		print(f"Elapsed Timesteps: {elapsed_timesteps}", flush=True)
+		print(f"Iteration took: {delta_t} secs", flush=True)
+		print(f"------------------------------------------------------", flush=True)
+		print(flush=True)
+
+		# Reset batch-specific logging data
+		self.logger['batch_lengths'] = []
+		self.logger['batch_returns'] = []
+		self.logger['actor_losses'] = []
