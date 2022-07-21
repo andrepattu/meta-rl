@@ -204,21 +204,22 @@ class Meta_PPO:
 				surr2 = torch.clamp(ratios, 1 - self.clip, 1 + self.clip) * Adv_k
 
 				# Calculate actor and critic losses.
-				actor_loss = self.loss_fn(batch_obs).squeeze().to(self.device) # use loss_fn to get actor loss
-				actor_loss = torch.mean(actor_loss)
+				actor_loss = torch.mean(self.loss_fn(batch_obs).squeeze().to(self.device)) # use loss_fn to get actor loss
 				# actor_loss = (-torch.min(surr1, surr2)).mean()
 				critic_loss = nn.MSELoss()(values, batch_rtgs)
 				loss_fn_loss = nn.MSELoss()(values, batch_rtgs) #  may be wrong to use values for this loss
 
-				# Calculate gradients and perform backward propagation for loss_fn network
-				# self.loss_fn.zero_grad()
-				# loss_fn_loss.backward(retain_graph=True)
-				# self.loss_fn_optim.step()
 
 				# Calculate gradients and perform backward propagation for actor network
 				self.actor_optim.zero_grad()
-				actor_loss.backward(retain_graph=True)
+				with torch.autograd.set_detect_anomaly(True):
+					actor_loss.backward(retain_graph=True)
 				self.actor_optim.step()
+
+				# Calculate gradients and perform backward propagation for loss_fn network
+				self.loss_fn.zero_grad()
+				loss_fn_loss.backward(retain_graph=True)
+				self.loss_fn_optim.step()
 
 				# Calculate gradients and perform backward propagation for critic network
 				self.critic_optim.zero_grad()
@@ -239,7 +240,7 @@ class Meta_PPO:
 
 				# plot graph of average episodic return
 				x = [i+1 for i in range(len(self.logger['score_history']))] # x is the graph's x-axis value
-				plot_learning_curve(x, self.logger['score_history'], "plots/test.png")
+				plot_learning_curve(x, self.logger['score_history'], "plots/meta_ppo.png")
 
 	def rollout(self):
 		"""
