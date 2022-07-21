@@ -11,59 +11,43 @@ from torch.distributions import MultivariateNormal
 from utils import plot_learning_curve
 
 class FeedForwardNN(nn.Module):
-	def __init__(self, in_dim, out_dim, mode):
-		"""
-			Initialize the network and set up the layers.
-			Parameters:
-				in_dim - input dimensions as an int
-				out_dim - output dimensions as an int
-			Return:
-				None
-		"""
+	def __init__(self, in_dim, out_dim, mode): # input dimensions and output dimensions are integers
 		super(FeedForwardNN, self).__init__()
-
 		self.mode = mode # training or testing?
 		self.device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
-
+		
+		# Build layers
 		# THESE HYPERPARAMETERS ARE THE ONES THAT PRODUCED THE CURRENT BASELINE
-		self.layer1 = nn.Linear(in_dim, 64)
-		self.layer2 = nn.Linear(64, 64)
-		self.layer3 = nn.Linear(64, out_dim)
+		self.l1 = nn.Linear(in_dim, 64)
+		self.l2 = nn.Linear(64, 64)
+		self.l3 = nn.Linear(64, out_dim)
 		
 		# # THESE HYPERPARAMETERS ARE SUGGESTED AFTER REFACTORING TO IMPROVE THE BASELINE PERFORMANCE
-		# self.layer1 = nn.Linear(in_dim, 128)
-		# self.layer2 = nn.Linear(128, 128)
-		# self.layer3 = nn.Linear(128, out_dim)
+		# self.l1 = nn.Linear(in_dim, 128)
+		# self.l2 = nn.Linear(128, 128)
+		# self.l3 = nn.Linear(128, out_dim)
 
 	def forward(self, obs):
-		"""
-			Runs a forward pass on the neural network.
-			Parameters:
-				obs - observation to pass as input
-			Return:
-				output - the output of the forward pass
-		"""
-		# Convert observation to tensor if it's a numpy array
+		# If observation is a numpy array, convert to tensor
 		if isinstance(obs, np.ndarray) and self.mode == "testing": # with cpu
 			obs = np.reshape(obs, -1) # flatten obs array before converting to tensor
 			obs = torch.tensor(obs, dtype=torch.float)
 		elif isinstance(obs, np.ndarray) and self.mode == "training": # with gpu
 			obs = torch.tensor(obs, dtype=torch.float).to(self.device)
 
-		activation1 = F.relu(self.layer1(obs))
-		activation2 = F.relu(self.layer2(activation1))
-		output = self.layer3(activation2)
+		act1 = F.relu(self.l1(obs)) # activation modules using relu
+		act2 = F.relu(self.l2(act1))
+		output = self.l3(act2)
 
 		return output
 
 class PPO:
-	def __init__(self, policy_class, env, **hyperparameters):
+	def __init__(self, policy, env, **hyperparameters):
 		"""
-			Initializes the PPO agent with the defined hyperparameters.
 			Parameters:
-				policy_class - the policy class to use for the actor/critic networks.
-				env - the environment to train on.
-				hyperparameters - all extra arguments passed into PPO that should be hyperparameters.
+				policy - policy class for the actor/critic networks (assumed to be the same neural network structure).
+				env - environment to train on.
+				hyperparameters - all other arguments passed into PPO.
 			Returns:
 				None
 		"""
@@ -71,14 +55,14 @@ class PPO:
 		assert(type(env.observation_space) == gym.spaces.Box)
 		assert(type(env.action_space) == gym.spaces.Box)
 
-		self._init_hyperparameters(hyperparameters)
 		self.env = env
 		self.obs_dim = env.observation_space.shape[0]
 		self.act_dim = env.action_space.shape[0]
+		self._init_hyperparameters(hyperparameters)
 
 		# Initialize actor and critic networks
-		self.actor = policy_class(self.obs_dim, self.act_dim, mode="training") # set mode flag to training by default                                                 
-		self.critic = policy_class(self.obs_dim, 1, mode="training")  # set mode flag to training by default 
+		self.actor = policy(self.obs_dim, self.act_dim, mode="training") # set mode flag to training by default                                                 
+		self.critic = policy(self.obs_dim, 1, mode="training")  # set mode flag to training by default 
 
 		# Set both networks to gpu device
 		self.device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')

@@ -40,7 +40,7 @@ def train(env, hyperparameters, actor_model, critic_model):
 			None
 	"""	
 	print("Training")
-	model = PPO(policy_class=FeedForwardNN, env=env, **hyperparameters)
+	model = PPO(policy=FeedForwardNN, env=env, **hyperparameters)
 
 	# Loads in an existing actor/critic model to resume training if specified
 	if actor_model != '' or critic_model != '': # Prevents rewriting of a model pth file if I did not specify both models
