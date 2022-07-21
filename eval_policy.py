@@ -1,34 +1,24 @@
-def _log_summary(ep_len, ep_ret, ep_num):
+
+def _log_summary(ep_length, ep_return, ep_num):
 		"""
-			Print to stdout what we've logged so far in the most recent episode.
-
-			Parameters:
-				None
-
-			Return:
-				None
+			Print the logs for the most recent episode.
 		"""
-		# Round decimal places for more aesthetic logging messages
-		ep_len = str(round(ep_len, 2))
-		ep_ret = str(round(ep_ret, 2))
+		ep_length = str(round(ep_length, 2))
+		ep_return = str(round(ep_return, 2))
 
-		# Print logging statements
-		print(flush=True)
-		print(f"-------------------- Episode #{ep_num} --------------------", flush=True)
-		print(f"Episodic Length: {ep_len}", flush=True)
-		print(f"Episodic Return: {ep_ret}", flush=True)
-		print(f"------------------------------------------------------", flush=True)
-		print(flush=True)
+		print(f"-------------------- Episode #{ep_num} --------------------")
+		print(f"Episodic Length: {ep_length}")
+		print(f"Episodic Return: {ep_return}")
+		print(f"------------------------------------------------------")
 
 def rollout(policy, env, render):
 	"""
-		Returns a generator to roll out each episode given a trained policy and
-		environment to test on. 
+		Returns a generator to roll out each episode
 
 		Parameters:
-			policy - The trained policy to test
-			env - The environment to evaluate the policy on
-			render - Specifies whether to render or not
+			policy - trained actor model to test
+			env - environment to evaluate the policy on
+			render - flag for rendering environment, default is false
 		
 		Return:
 			A generator object rollout, or iterable, which will return the latest
@@ -36,46 +26,40 @@ def rollout(policy, env, render):
 	"""
 	# tests for 10 iterations
 	for _ in range(10):
-		obs = env.reset()
 		done = False
-
-		# number of timesteps so far
-		t = 0
-
-		# Logging data
-		ep_len = 0            # episodic length
-		ep_ret = 0            # episodic return
-
+		timesteps = 0
+		ep_length = 0            
+		ep_return = 0  
+		obs = env.reset()
+		          
 		while not done:
-			t += 1
-
-			# Render environment if specified, off by default
+			# Render environment if flag is true, default is false
 			if render:
 				env.render()
 
-			# Query deterministic action from policy and run it
+			# Query deterministic action from policy and step in the environment
 			action = policy(obs).detach().numpy()
-			obs, rew, done, _ = env.step(action)
+			obs, reward, done, _ = env.step(action)
 
-			# Sum all episodic rewards as we go along
-			ep_ret += rew
+			# Accumlate episodic rewards accross all timesteps
+			ep_return += reward
+
+			timesteps += 1
 			
 		# Track episodic length
-		ep_len = t
+		ep_length = timesteps
 
-		# returns episodic length and return in this iteration
-		yield ep_len, ep_ret
+		# Return episodic length and episodic return
+		yield ep_length, ep_return
 
 def eval_policy(policy, env, render=False):
 	"""
-		The main function to evaluate our policy with. It will iterate a generator object
-		"rollout", which will simulate each episode and return the most recent episode's
-		length and return. We can then log it right after.
+		Iterate the rollout generator object, which simulates each episode and return the most recent episode's length and return.
 
 		Parameters:
-			policy - The trained policy to test, basically another name for our actor model
-			env - The environment to test the policy on
-			render - Whether we should render our episodes. False by default.
+			policy - trained actor model
+			env -  environment to test the policy on
+			render - flag for rendering environment, default is false
 
 		Return:
 			None
@@ -83,9 +67,9 @@ def eval_policy(policy, env, render=False):
 	total_score = 0
 
 	# Rollout with the policy and environment, and log each episode's data
-	for ep_num, (ep_len, ep_ret) in enumerate(rollout(policy, env, render)):
-		_log_summary(ep_len=ep_len, ep_ret=ep_ret, ep_num=ep_num)
-		total_score += ep_ret
+	for ep_num, (ep_length, ep_return) in enumerate(rollout(policy, env, render)):
+		_log_summary(ep_length=ep_length, ep_return=ep_return, ep_num=ep_num)
+		total_score += ep_return
 
 	avg_score = total_score / 10
 	print(f"average score over 10 iterations: {avg_score}")
