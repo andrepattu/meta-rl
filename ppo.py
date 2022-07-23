@@ -79,15 +79,15 @@ class PPO:
 
 		# Logs summaries of each iteration
 		self.logger = {
-			'delta_t': time.time_ns(),
-			'elapsed_timesteps': 0,  # elapsed timesteps
-			'elapsed_iterations': 0, # iterations so far
 			'batch_lengths': [],     # episodic lengths in batch
 			'batch_returns': [],     # episodic returns in batch
 			'actor_losses': [],      # actor losses in current iteration
+			'elapsed_timesteps': 0,  # elapsed timesteps
+			'elapsed_iterations': 0, # iterations so far
+			'time_diff': time.time_ns(),
 		}
 
-	def learn(self, total_timesteps):
+	def train(self, total_timesteps):
 		"""
 			Train the actor and critic networks.
 			Parameters:
@@ -95,11 +95,8 @@ class PPO:
 			Return:
 				None
 		"""
-		print(f"Learning... Running {self.timesteps_per_episode} timesteps per episode, ", end='')
-		print(f"{self.timesteps_per_batch} timesteps per batch for a total of {total_timesteps} timesteps")
 		elapsed_timesteps = 0 
 		elapsed_iterations = 0 
-
 		self.logger['score_history'] = []
 		
 		while elapsed_timesteps < total_timesteps:                                                                      
@@ -111,19 +108,15 @@ class PPO:
 			# Calculate how many timesteps we collected this batch
 			elapsed_timesteps += np.sum(batch_lengths)
 
-			# Increment the number of iterations
-			elapsed_iterations += 1
-
 			# Logging elapsed timesteps and iterations
 			self.logger['elapsed_timesteps'] = elapsed_timesteps
 			self.logger['elapsed_iterations'] = elapsed_iterations
 
-			# Compute advantage estimates at k-th iteration
-			values, _ = self.evaluate(batch_obs, batch_acts)
-			Adv_k = batch_rtgs - values.detach()                                                                       
+			values, _ = self.evaluate(batch_obs, batch_acts) # state values using critic network to evaluate
+			adv = batch_rtgs - values.detach() # advantage estimates                                                              
+			adv = (adv - adv.mean()) / (adv.std() + 1e-10) # normalization for better convergence
 
-			# Normalize advantages to decrease variance and improve convergence much more stable and faster.
-			Adv_k = (Adv_k - Adv_k.mean()) / (Adv_k.std() + 1e-10)
+			elapsed_iterations += 1
 
 			# Update policy for number of epochs
 			for _ in range(self.num_epochs):                                                       
@@ -134,8 +127,8 @@ class PPO:
 				ratios = torch.exp(curr_log_probs - batch_log_probs).to(self.device)
 
 				# Calculate surrogate losses.
-				surr1 = ratios * Adv_k
-				surr2 = torch.clamp(ratios, 1 - self.clip, 1 + self.clip) * Adv_k
+				surr1 = ratios * adv
+				surr2 = torch.clamp(ratios, 1 - self.clip, 1 + self.clip) * adv
 
 				# Calculate actor and critic losses.
 				actor_loss = (-torch.min(surr1, surr2)).mean()
@@ -146,18 +139,15 @@ class PPO:
 				actor_loss.backward(retain_graph=True)
 				self.actor_optim.step()
 
+				# Log actor losses
+				self.logger['actor_losses'].append(actor_loss.detach())
+
 				# Calculate gradients and perform backward propagation for critic network
 				self.critic_optim.zero_grad()
 				critic_loss.backward()
 				self.critic_optim.step()
 
-				# Log actor losses
-				self.logger['actor_losses'].append(actor_loss.detach())
-
-			# Print a summary of the training
-			self._log_summary()
-
-			# Save the models if it's time
+			# Save the models according to save frequency
 			if elapsed_iterations % self.save_freq == 0:
 				torch.save(self.actor.state_dict(), 'models/test_ppo_actor.pth')
 				torch.save(self.critic.state_dict(), 'models/test_ppo_critic.pth')
@@ -165,6 +155,9 @@ class PPO:
 				# plot graph of average episodic return
 				x = [i+1 for i in range(len(self.logger['score_history']))] # x is the graph's x-axis value
 				plot_learning_curve(x, self.logger['score_history'], "plots/test.png")
+
+			# Print a summary of the training
+			self._log_summary()
 
 	def rollout(self):
 		"""
@@ -202,23 +195,19 @@ class PPO:
 				if self.render and (self.logger['elapsed_iterations'] % self.render_every_i == 0) and len(batch_lengths) == 0:
 					self.env.render()
 
-				t += 1 # Increment timesteps ran this batch so far
-
-				# Track observations in this batch
 				batch_obs.append(obs)
 
-				# Calculate action and take a step in the env. 
-				action, log_prob = self.get_action(obs)
-				obs, reward, done, _ = self.env.step(action)
+				action, log_prob = self.query_action(obs)
+				obs, reward, done, _ = self.env.step(action) # step into env with queried action
 
-				# Track recent reward, action, and action log probability
-				ep_rewards.append(reward)
 				batch_acts.append(action)
 				batch_log_probs.append(log_prob)
+				ep_rewards.append(reward)
 
-				score = np.sum(ep_rewards)
-				score = round(score, 2)
+				score = round(np.sum(ep_rewards),2)
 				self.logger['score'] = score
+
+				t += 1
 
 				if done:
 					break
@@ -263,7 +252,7 @@ class PPO:
 
 		return batch_rtgs
 
-	def get_action(self, obs):
+	def query_action(self, obs):
 		"""
 			Queries an action from the actor network, should be called from rollout.
 			Parameters:
@@ -273,15 +262,11 @@ class PPO:
 				log_prob - the log probability of the selected action in the distribution
 		"""
 		# Query the actor network for a mean action
-		mean = self.actor(obs)
+		mean_act = self.actor(obs)
 
-		# Create a distribution with the mean action and std from the covariance matrix above.
-		dist = MultivariateNormal(mean, self.cov_mat)
-
-		# Sample an action from the distribution
+		# Create a distribution with the mean action and std from the covariance matrix to sample from
+		dist = MultivariateNormal(mean_act, self.cov_mat)
 		action = dist.sample()
-
-		# Calculate the log probability for that action
 		log_prob = dist.log_prob(action)
 
 		# Return the sampled action and the log probability of that action in our distribution
@@ -291,7 +276,7 @@ class PPO:
 		"""
 			Estimate the values of each observation, and the log probs of
 			each action in the most recent batch with the most recent
-			iteration of the actor network. Should be called from learn.
+			iteration of the actor network. Should be called from train.
 			Parameters:
 				batch_obs - the observations from the most recently collected batch as a tensor.
 							Shape: (number of timesteps in batch, dimension of observation)
@@ -305,8 +290,8 @@ class PPO:
 		values = self.critic(batch_obs).squeeze().to(self.device)
 
 		# Calculate the log probabilities of batch actions using most recent actor network.
-		mean = self.actor(batch_obs)
-		dist = MultivariateNormal(mean, self.cov_mat)
+		mean_act = self.actor(batch_obs)
+		dist = MultivariateNormal(mean_act, self.cov_mat)
 		log_probs = dist.log_prob(batch_acts)
 
 		return values, log_probs
@@ -349,42 +334,25 @@ class PPO:
 			print(f"Successfully set seed to {self.seed}")
 
 	def _log_summary(self):
-		"""
-			Print to stdout what we've logged so far in the most recent batch.
-			Parameters:
-				None
-			Return:
-				None
-		"""
-		# Calculate logging values. I use a few python shortcuts to calculate each value
-		# without explaining since it's not too important to PPO; feel free to look it over,
-		# and if you have any questions you can email me (look at bottom of README)
-		delta_t = self.logger['delta_t']
-		self.logger['delta_t'] = time.time_ns()
-		delta_t = (self.logger['delta_t'] - delta_t) / 1e9
-		delta_t = str(round(delta_t, 2))
-
 		elapsed_timesteps = self.logger['elapsed_timesteps']
 		elapsed_iterations = self.logger['elapsed_iterations']
-		avg_ep_lens = np.mean(self.logger['batch_lengths'])
-		avg_ep_rewards = np.mean([np.sum(ep_rewards) for ep_rewards in self.logger['batch_returns']])
-		avg_actor_loss = np.mean([torch.Tensor.cpu(losses).float().mean() for losses in self.logger['actor_losses']])
+		time_diff = self.logger['time_diff']
+		self.logger['time_diff'] = time.time_ns()
+		time_diff = (self.logger['time_diff'] - time_diff) / 1e9
+		time_diff = str(round(time_diff, 2))
 
-		# Round decimal places for more aesthetic logging messages
-		avg_ep_lens = str(round(avg_ep_lens, 2))
-		avg_ep_rewards = str(round(avg_ep_rewards, 2))
-		avg_actor_loss = str(round(avg_actor_loss, 5))
+		avg_ep_length = str(np.mean(self.logger['batch_lengths']))
+		avg_ep_rewards = str(round(np.mean([np.sum(ep_rewards) for ep_rewards in self.logger['batch_returns']]), 2))
+		avg_actor_loss = str(round(np.mean([torch.Tensor.cpu(losses).float().mean() for losses in self.logger['actor_losses']]), 5))
 
 		# Print logging statements
-		print(flush=True)
-		print(f"-------------------- Iteration #{elapsed_iterations} --------------------", flush=True)
-		print(f"Average Episodic Length: {avg_ep_lens}", flush=True)
-		print(f"Average Episodic Return: {avg_ep_rewards}", flush=True)
-		print(f"Average Loss: {avg_actor_loss}", flush=True)
-		print(f"Elapsed Timesteps: {elapsed_timesteps}", flush=True)
-		print(f"Iteration took: {delta_t} secs", flush=True)
-		print(f"------------------------------------------------------", flush=True)
-		print(flush=True)
+		print(f"-------------------- Iteration #{elapsed_iterations} --------------------")
+		print(f"Average Episodic Length: {avg_ep_length}")
+		print(f"Average Episodic Return: {avg_ep_rewards}")
+		print(f"Average Loss: {avg_actor_loss}")
+		print(f"Elapsed Timesteps: {elapsed_timesteps}")
+		print(f"Iteration took: {time_diff} secs")
+		print(f"------------------------------------------------------")
 
 		# Reset batch-specific logging data
 		self.logger['batch_lengths'] = []

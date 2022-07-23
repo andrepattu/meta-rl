@@ -54,7 +54,7 @@ def train(env, hyperparameters, actor_model, critic_model):
 		print(f"Training from scratch.")
 
 	# total_timesteps is set high but can be killed if learning has converged
-	model.learn(total_timesteps=100_000_000)
+	model.train(total_timesteps=100_000_000)
 
 def test(env, actor_model):
 	"""
