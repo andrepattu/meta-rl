@@ -29,9 +29,9 @@ class OUActionNoise(object):
         return f"OrnsteinUhlenbeckActionNoise(mu={self.mu}, sigma={self.sigma})"
 
 class ReplayBuffer(object):
-    def __init__(self, max_size, in_dim, act_dim):
+    def __init__(self, size, in_dim, act_dim):
         self.mem_counter = 0 # memory counter
-        self.mem_size = max_size
+        self.mem_size = size
         self.act_mem = np.zeros((self.mem_size, act_dim))
         self.reward_mem = np.zeros(self.mem_size)
         self.state_mem = np.zeros((self.mem_size, *in_dim))
@@ -123,57 +123,52 @@ class Network(nn.Module):
 
 
 class DDPG(object):
-    def __init__(self, alph, beta, in_dim, tau, env_name, gamma=0.99,
-                 act_dim=2, max_size=1000000, layer1_size=400,
-                 layer2_size=300, batch_size=64):
-        self.gamma = gamma
-        self.tau = tau
-        self.memory = ReplayBuffer(max_size, in_dim, act_dim)
-        self.batch_size = batch_size
+    def __init__(self, alph, beta, in_dim, act_dim, env_name, tau, batch_size, l1_size,
+                 l2_size, gamma, replay_buffer_size):
         self.env_name = env_name
+        self.tau = tau
+        self.batch_size = batch_size
+        self.memory = ReplayBuffer(replay_buffer_size, in_dim, act_dim)
+        self.gamma = gamma
 
-        self.actor = Network(alph, in_dim, layer1_size,
-                                  layer2_size, act_dim=act_dim,
+        self.actor = Network(alph, in_dim, l1_size,
+                                  l2_size, act_dim=act_dim,
                                   name=env_name+'Actor')
-        self.critic = Network(beta, in_dim, layer1_size,
-                                    layer2_size, act_dim=act_dim,
+        self.critic = Network(beta, in_dim, l1_size,
+                                    l2_size, act_dim=act_dim,
                                     name=env_name+'Critic')
 
-        self.target_actor = Network(alph, in_dim, layer1_size,
-                                         layer2_size, act_dim=act_dim,
+        self.target_actor = Network(alph, in_dim, l1_size,
+                                         l2_size, act_dim=act_dim,
                                          name=env_name+'TargetActor')
-        self.target_critic = Network(beta, in_dim, layer1_size,
-                                           layer2_size, act_dim=act_dim,
+        self.target_critic = Network(beta, in_dim, l1_size,
+                                           l2_size, act_dim=act_dim,
                                            name=env_name+'TargetCritic')
 
         self.noise = OUActionNoise(mu=np.zeros(act_dim))
+        self.update_parameters(tau=1)
 
-        self.update_network_parameters(tau=1)
-
-    def query_action(self, observation):
+    def query_action(self, obs):
         self.actor.eval()
-        observation = torch.tensor(observation, dtype=torch.float).to(self.actor.device)
-        mu = self.actor.forward(observation, None).to(self.actor.device)
-        mu_prime = mu + torch.tensor(self.noise(),
-                                 dtype=torch.float).to(self.actor.device)
+        obs = torch.tensor(obs, dtype=torch.float).to(self.actor.device)
+        mu = self.actor.forward(obs, None).to(self.actor.device)
+        mu_prime = mu + torch.tensor(self.noise(), dtype=torch.float).to(self.actor.device)
         self.actor.train()
         return mu_prime.cpu().detach().numpy()
 
-
-    def remember(self, state, action, reward, new_state, done):
+    def store_memory(self, state, action, reward, new_state, done):
         self.memory.store_transition(state, action, reward, new_state, done)
 
     def learn(self):
         if self.memory.mem_counter < self.batch_size:
             return
-        state, action, reward, new_state, done = \
-                                      self.memory.sample_buffer(self.batch_size)
-
-        reward = torch.tensor(reward, dtype=torch.float).to(self.critic.device)
-        done = torch.tensor(done).to(self.critic.device)
-        new_state = torch.tensor(new_state, dtype=torch.float).to(self.critic.device)
-        action = torch.tensor(action, dtype=torch.float).to(self.critic.device)
+        state, action, reward, new_state, done = self.memory.sample_buffer(self.batch_size)
+        
         state = torch.tensor(state, dtype=torch.float).to(self.critic.device)
+        action = torch.tensor(action, dtype=torch.float).to(self.critic.device)
+        reward = torch.tensor(reward, dtype=torch.float).to(self.critic.device)
+        new_state = torch.tensor(new_state, dtype=torch.float).to(self.critic.device)
+        done = torch.tensor(done).to(self.critic.device)
 
         self.target_actor.eval()
         self.target_critic.eval()
@@ -183,8 +178,8 @@ class DDPG(object):
         critic_value = self.critic.forward(state, action)
 
         target = []
-        for j in range(self.batch_size):
-            target.append(reward[j] + self.gamma*critic_value_[j]*done[j])
+        for i in range(self.batch_size):
+            target.append(reward[i] + self.gamma*critic_value_[i]*done[i])
         target = torch.tensor(target).to(self.critic.device)
         target = target.view(self.batch_size, 1)
 
@@ -193,8 +188,8 @@ class DDPG(object):
         critic_loss = F.mse_loss(target, critic_value)
         critic_loss.backward()
         self.critic.optimizer.step()
-
         self.critic.eval()
+
         self.actor.optimizer.zero_grad()
         mu = self.actor.forward(state, None)
         self.actor.train()
@@ -203,32 +198,24 @@ class DDPG(object):
         actor_loss.backward()
         self.actor.optimizer.step()
 
-        self.update_network_parameters()
+        self.update_parameters()
 
-    def update_network_parameters(self, tau=None):
+    def update_parameters(self, tau=None): # updates network parameters with tau
         if tau is None:
             tau = self.tau
 
-        actor_params = self.actor.named_parameters()
-        critic_params = self.critic.named_parameters()
-        target_actor_params = self.target_actor.named_parameters()
-        target_critic_params = self.target_critic.named_parameters()
-
-        # convert to dictionaries for easier iteration
-        critic_state_dict = dict(critic_params)
-        actor_state_dict = dict(actor_params)
-        target_critic_dict = dict(target_critic_params)
-        target_actor_dict = dict(target_actor_params)
+        # extract and convert parameters to dictionaries for easier iteration
+        actor_state_dict = dict(self.actor.named_parameters())
+        critic_state_dict = dict(self.critic.named_parameters())
+        target_actor_state_dict = dict(self.target_actor.named_parameters())
+        target_critic_state_dict = dict(self.target_critic.named_parameters())
 
         for name in critic_state_dict:
-            critic_state_dict[name] = tau*critic_state_dict[name].clone() + \
-                                      (1-tau)*target_critic_dict[name].clone()
-
+            critic_state_dict[name] = tau*critic_state_dict[name].clone() + (1-tau)*target_critic_state_dict[name].clone()
         self.target_critic.load_state_dict(critic_state_dict)
 
         for name in actor_state_dict:
-            actor_state_dict[name] = tau*actor_state_dict[name].clone() + \
-                                      (1-tau)*target_actor_dict[name].clone()
+            actor_state_dict[name] = tau*actor_state_dict[name].clone() + (1-tau)*target_actor_state_dict[name].clone()
         self.target_actor.load_state_dict(actor_state_dict)
 
     def save_models(self):

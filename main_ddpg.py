@@ -46,9 +46,9 @@ def train(env_name, hyperparameters, actor_model, critic_model):
     env = gym.make(env_name)
     obs_dim = env.observation_space.shape[0]
     act_dim = env.action_space.shape[0]
-    agent = DDPG(alph=hyperparameters['alph'], beta=hyperparameters['beta'], in_dim=[obs_dim], tau=hyperparameters['tau'], 
-            env_name=env_name, batch_size=hyperparameters['batch_size'],  layer1_size=hyperparameters['l1_size'], 
-            layer2_size=hyperparameters['l2_size'], act_dim=act_dim)
+    agent = DDPG(alph=hyperparameters['alph'], beta=hyperparameters['beta'], in_dim=[obs_dim], act_dim=act_dim, env_name=env_name,
+            tau=hyperparameters['tau'], batch_size=hyperparameters['batch_size'],  l1_size=hyperparameters['l1_size'], 
+            l2_size=hyperparameters['l2_size'], gamma=hyperparameters['gamma'], replay_buffer_size=hyperparameters['replay_buffer_size'])
 
     # Loads in an existing actor/critic model to resume training if specified
     if actor_model != '' or critic_model != '': # Prevents rewriting of a model pth file if I did not specify both models
@@ -70,7 +70,8 @@ def train(env_name, hyperparameters, actor_model, critic_model):
         while not done:
             act = agent.query_action(obs)
             next_state, reward, done, info = env.step(act)
-            agent.remember(obs, act, reward, next_state, int(done))
+            # print(info) # for debugging
+            agent.store_memory(obs, act, reward, next_state, int(done))
             agent.learn()
             score += reward
             obs = next_state
@@ -104,6 +105,8 @@ def main(args):
 				'batch_size': 64,
 				'l1_size': 400,
 				'l2_size': 300,
+                'gamma': 0.99,
+                'replay_buffer_size': 1000000,
                 'timesteps': 1000,
 			  }
 
