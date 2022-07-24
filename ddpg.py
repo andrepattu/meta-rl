@@ -6,13 +6,15 @@ import torch.optim as optim
 import numpy as np
 
 class OUActionNoise(object):
-    def __init__(self, mu, sigma=0.15, theta=0.2, dt=1e-2, x0=None):
-        self.theta = theta
+    def __init__(self, mu, sigma=0.15, theta=0.2, x0=None, dt=1e-2):
         self.mu = mu
         self.sigma = sigma
-        self.dt = dt
+        self.theta = theta
         self.x0 = x0
-        self.reset()
+        self.dt = dt
+
+        # reset x_prev to x0
+        self.x_prev = self.x0 if self.x0 is not None else np.zeros_like(self.mu)
 
     def __call__(self): # overwriting the call function
         # noise = OUActionNoise()
@@ -22,28 +24,25 @@ class OUActionNoise(object):
         self.x_prev = x
         return x
 
-    def reset(self): # reset x_prev to x0
-        self.x_prev = self.x0 if self.x0 is not None else np.zeros_like(self.mu)
-
     def __repr__(self):
         return f"OrnsteinUhlenbeckActionNoise(mu={self.mu}, sigma={self.sigma})"
 
 class ReplayBuffer(object):
     def __init__(self, max_size, in_dim, act_dim):
         self.mem_size = max_size
-        self.mem_counter = 0
-        self.state_memory = np.zeros((self.mem_size, *in_dim))
-        self.new_state_memory = np.zeros((self.mem_size, *in_dim))
-        self.action_memory = np.zeros((self.mem_size, act_dim))
-        self.reward_memory = np.zeros(self.mem_size)
+        self.mem_counter = 0 # memory counter
+        self.state_mem = np.zeros((self.mem_size, *in_dim))
+        self.new_state_mem = np.zeros((self.mem_size, *in_dim))
+        self.act_mem = np.zeros((self.mem_size, act_dim))
+        self.reward_mem = np.zeros(self.mem_size)
         self.terminal_memory = np.zeros(self.mem_size, dtype=np.float32)
 
     def store_transition(self, state, action, reward, next_state, done):
         idx = self.mem_counter % self.mem_size
-        self.state_memory[idx] = state
-        self.new_state_memory[idx] = next_state
-        self.action_memory[idx] = action
-        self.reward_memory[idx] = reward
+        self.state_mem[idx] = state
+        self.new_state_mem[idx] = next_state
+        self.act_mem[idx] = action
+        self.reward_mem[idx] = reward
         self.terminal_memory[idx] = 1 - done
         self.mem_counter += 1
 
@@ -51,10 +50,10 @@ class ReplayBuffer(object):
         max_mem = min(self.mem_counter, self.mem_size)
         batch = np.random.choice(max_mem, batch_size)
 
-        states = self.state_memory[batch]
-        actions = self.action_memory[batch]
-        rewards = self.reward_memory[batch]
-        next_states = self.new_state_memory[batch]
+        states = self.state_mem[batch]
+        actions = self.act_mem[batch]
+        rewards = self.reward_mem[batch]
+        next_states = self.new_state_mem[batch]
         terminal = self.terminal_memory[batch]
 
         return states, actions, rewards, next_states, terminal
@@ -190,7 +189,7 @@ class DDPG(object):
 
         self.update_network_parameters(tau=1)
 
-    def choose_action(self, observation):
+    def query_action(self, observation):
         self.actor.eval()
         observation = torch.tensor(observation, dtype=torch.float).to(self.actor.device)
         mu = self.actor.forward(observation).to(self.actor.device)

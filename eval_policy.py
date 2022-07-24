@@ -11,7 +11,7 @@ def _log_summary(ep_length, ep_return, ep_num):
 		print(f"Episodic Return: {ep_return}")
 		print(f"------------------------------------------------------")
 
-def rollout(policy, env, render):
+def rollout(policy, env, render=False):
 	"""
 		Returns a generator to roll out each episode
 
