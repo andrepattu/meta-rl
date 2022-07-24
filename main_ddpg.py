@@ -5,7 +5,8 @@ import gym.wrappers as wrap
 import numpy as np
 import torch
 
-from ddpg import DDPG
+from ddpg import DDPG, Network
+from eval_policy_ddpg import eval_policy
 from utils import plot_learning_curve
 
 def get_args():
@@ -50,17 +51,6 @@ def train(env_name, hyperparameters, actor_model, critic_model):
             tau=hyperparameters['tau'], batch_size=hyperparameters['batch_size'],  l1_size=hyperparameters['l1_size'], 
             l2_size=hyperparameters['l2_size'], gamma=hyperparameters['gamma'], replay_buffer_size=hyperparameters['replay_buffer_size'])
 
-    # Loads in an existing actor/critic model to resume training if specified
-    if actor_model != '' or critic_model != '': # Prevents rewriting of a model pth file if I did not specify both models
-        print(f"Please specify both actor and critic models!")
-        sys.exit(0)
-    elif actor_model != '' and critic_model != '':
-        print(f"Loading in {actor_model} and {critic_model}...")
-        agent.actor.load_state_dict(torch.load(actor_model))
-        agent.critic.load_state_dict(torch.load(critic_model))
-    else:
-        print(f"Training from scratch.")
-
     score_history = []
     best_score = env.reward_range[0]
     for i in range(hyperparameters['timesteps']):
@@ -88,6 +78,39 @@ def train(env_name, hyperparameters, actor_model, critic_model):
             x = [i+1 for i in range(len(score_history))]
             filename = f'plots/{env_name}_test.png'
             plot_learning_curve(x, score_history, filename, window=100)
+
+def test(env_name, hyperparameters, actor_model):
+    """
+        Parameters:
+            env - the environment to test the policy on
+            actor_model - the actor model to load in to test
+
+        Return:
+            None
+    """
+    print(f"Testing {actor_model}")
+
+    # If the actor model is not specified, then exit
+    if actor_model == '':
+        print(f"Didn't specify model file. Exiting.")
+        sys.exit(0)
+
+    env = gym.make(env_name)
+    obs_dim = env.observation_space.shape[0]
+    act_dim = env.action_space.shape[0]
+
+    policy = Network(lr=hyperparameters['alph'], in_dim=[obs_dim], act_dim=act_dim, l1_size=hyperparameters['l1_size'], 
+                    l2_size=hyperparameters['l2_size'], name=env_name+'Actor')
+    # strict is set to False here to catch exceptions where the networks don't exactly match up
+    policy.load_state_dict(torch.load(actor_model), strict=False) 
+
+    # agent = DDPG(alph=hyperparameters['alph'], beta=hyperparameters['beta'], in_dim=[obs_dim], act_dim=act_dim, env_name=env_name,
+    #         tau=hyperparameters['tau'], batch_size=hyperparameters['batch_size'],  l1_size=hyperparameters['l1_size'], 
+    #         l2_size=hyperparameters['l2_size'], gamma=hyperparameters['gamma'], replay_buffer_size=hyperparameters['replay_buffer_size'])
+    # agent.load_state_dict(torch.load(actor_model), strict=False) # strict is set to False here to catch exceptions where the networks don't exactly match up
+
+    # seperate function to evaluate trained policy
+    eval_policy(policy=policy, env=env, render=True)
 
 def main(args):
 	"""
@@ -118,9 +141,9 @@ def main(args):
 	if args.mode == 'train':
 		train(env_name=env_name, hyperparameters=hyperparameters, actor_model=args.actor_model, critic_model=args.critic_model)
 	else:
-		test_env = wrap.ResizeObservation(env, shape=(2,1)) # pendulum (3,1), MountainCar obs_dim (2,1)
+		# test_env = wrap.ResizeObservation(env, shape=(2,1)) # pendulum (3,1), MountainCar obs_dim (2,1)
 		# LunarLander does not work because of different actions space
-		test(env=test_env, actor_model=args.actor_model)
+		test(env_name=env_name, hyperparameters=hyperparameters, actor_model=args.actor_model)
 
 if __name__ == '__main__':
 	args = get_args() # Parse arguments from command line

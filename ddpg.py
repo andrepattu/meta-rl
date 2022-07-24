@@ -60,37 +60,37 @@ class ReplayBuffer(object):
         return states, actions, rewards, next_states, terminal
 
 class Network(nn.Module):
-    def __init__(self, beta, in_dim, fc1_dims, fc2_dims, act_dim, name, chkpt_dir='models'):
+    def __init__(self, lr, in_dim, act_dim, l1_size, l2_size, name, chkpt_dir='models'):
         super(Network, self).__init__()
         self.name = name # name containing environment name and network type
         self.checkpoint_file = os.path.join(chkpt_dir,name+'_ddpg_test.pth')
 
         self.in_dim = in_dim
-        self.fc1_dims = fc1_dims
-        self.fc2_dims = fc2_dims
         self.act_dim = act_dim
-        self.fc1 = nn.Linear(*self.in_dim, self.fc1_dims)
+        self.l1_size = l1_size
+        self.l2_size = l2_size
+        self.fc1 = nn.Linear(*self.in_dim, self.l1_size)
         init_val1 = 1/np.sqrt(self.fc1.weight.data.size()[0])
         nn.init.uniform_(self.fc1.weight.data, -init_val1, init_val1)
         nn.init.uniform_(self.fc1.bias.data, -init_val1, init_val1)
-        self.bn1 = nn.LayerNorm(self.fc1_dims)
+        self.bn1 = nn.LayerNorm(self.l1_size)
 
-        self.fc2 = nn.Linear(self.fc1_dims, self.fc2_dims)
+        self.fc2 = nn.Linear(self.l1_size, self.l2_size)
         init_val2 = 1/np.sqrt(self.fc2.weight.data.size()[0])
         nn.init.uniform_(self.fc2.weight.data, -init_val2, init_val2)
         nn.init.uniform_(self.fc2.bias.data, -init_val2, init_val2)
-        self.bn2 = nn.LayerNorm(self.fc2_dims)
+        self.bn2 = nn.LayerNorm(self.l2_size)
 
-        self.act_val = nn.Linear(self.act_dim, self.fc2_dims)
+        self.act_val = nn.Linear(self.act_dim, self.l2_size)
         init_val3 = 0.003
 
-        self.q = nn.Linear(self.fc2_dims, 1) # for critic
-        self.mu = nn.Linear(self.fc2_dims, self.act_dim) # for actor
+        self.q = nn.Linear(self.l2_size, 1) # for critic
+        self.mu = nn.Linear(self.l2_size, self.act_dim) # for actor
 
         nn.init.uniform_(self.q.weight.data, -init_val3, init_val3)
         nn.init.uniform_(self.q.bias.data, -init_val3, init_val3)
 
-        self.optimizer = optim.Adam(self.parameters(), lr=beta)
+        self.optimizer = optim.Adam(self.parameters(), lr=lr)
         self.device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
         self.to(self.device)
 
@@ -131,18 +131,14 @@ class DDPG(object):
         self.memory = ReplayBuffer(replay_buffer_size, in_dim, act_dim)
         self.gamma = gamma
 
-        self.actor = Network(alph, in_dim, l1_size,
-                                  l2_size, act_dim=act_dim,
+        self.actor = Network(alph, in_dim, act_dim, l1_size, l2_size,
                                   name=env_name+'Actor')
-        self.critic = Network(beta, in_dim, l1_size,
-                                    l2_size, act_dim=act_dim,
+        self.critic = Network(beta, in_dim, act_dim, l1_size, l2_size,
                                     name=env_name+'Critic')
 
-        self.target_actor = Network(alph, in_dim, l1_size,
-                                         l2_size, act_dim=act_dim,
+        self.target_actor = Network(alph, in_dim, act_dim, l1_size, l2_size,
                                          name=env_name+'TargetActor')
-        self.target_critic = Network(beta, in_dim, l1_size,
-                                           l2_size, act_dim=act_dim,
+        self.target_critic = Network(beta, in_dim, act_dim, l1_size, l2_size,
                                            name=env_name+'TargetCritic')
 
         self.noise = OUActionNoise(mu=np.zeros(act_dim))
