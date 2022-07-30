@@ -1,3 +1,4 @@
+import os
 import gym
 import time
 import numpy as np
@@ -55,6 +56,8 @@ class PPO:
 		assert(type(env.observation_space) == gym.spaces.Box)
 		assert(type(env.action_space) == gym.spaces.Box)
 
+		self.custom_name = 'ppo-Pendulum-test'
+
 		self.env = env
 		self.obs_dim = env.observation_space.shape[0]
 		self.act_dim = env.action_space.shape[0]
@@ -98,12 +101,24 @@ class PPO:
 		elapsed_timesteps = 0 
 		elapsed_iterations = 0 
 		self.logger['score_history'] = []
+
+		path_to_logs = f"score_logs/{self.custom_name}.txt"
+		# remove existing txt file so that scores are not appended to old logs
+		try:
+			os.remove(path_to_logs)
+		except OSError:
+			pass
 		
 		while elapsed_timesteps < total_timesteps:                                                                      
 			# Collecting the batch simulations (set of trajectories)
 			batch_obs, batch_acts, batch_log_probs, batch_rtgs, batch_lengths = self.rollout()                     
 
 			self.logger['score_history'].append(self.logger['score'])
+
+			# write scores to score logs
+			with open(path_to_logs, 'a') as f:
+				f.write(str(self.logger['score']))
+				f.write('\n')
 
 			# Calculate how many timesteps we collected this batch
 			elapsed_timesteps += np.sum(batch_lengths)
@@ -149,12 +164,12 @@ class PPO:
 
 			# Save the models according to save frequency
 			if elapsed_iterations % self.save_freq == 0:
-				torch.save(self.actor.state_dict(), 'models/test_ppo_actor.pth')
-				torch.save(self.critic.state_dict(), 'models/test_ppo_critic.pth')
+				torch.save(self.actor.state_dict(), f'models/{self.custom_name}_actor.pth')
+				torch.save(self.critic.state_dict(), f'models/{self.custom_name}_critic.pth')
 
 				# plot graph of average episodic return
 				x = [i+1 for i in range(len(self.logger['score_history']))] # x is the graph's x-axis value
-				plot_learning_curve(x, self.logger['score_history'], "plots/test.png")
+				plot_learning_curve(x, self.logger['score_history'], f"plots/{self.custom_name}.png")
 
 			# Print a summary of the training
 			self._log_summary()
