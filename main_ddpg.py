@@ -1,4 +1,5 @@
 import sys
+import os
 import argparse
 import gym
 import gym.wrappers as wrap
@@ -45,14 +46,23 @@ def train(env_name, hyperparameters, actor_model, critic_model):
     print("Training")
 
     env = gym.make(env_name)
+    custom_name = env_name + '_ddpg_test' # custom name for experiment
     obs_dim = env.observation_space.shape[0]
     act_dim = env.action_space.shape[0]
-    agent = DDPG(alph=hyperparameters['alph'], beta=hyperparameters['beta'], in_dim=[obs_dim], act_dim=act_dim, env_name=env_name,
+    agent = DDPG(alph=hyperparameters['alph'], beta=hyperparameters['beta'], in_dim=[obs_dim], act_dim=act_dim, custom_name=custom_name,
             tau=hyperparameters['tau'], batch_size=hyperparameters['batch_size'],  l1_size=hyperparameters['l1_size'], 
             l2_size=hyperparameters['l2_size'], gamma=hyperparameters['gamma'], replay_buffer_size=hyperparameters['replay_buffer_size'])
 
     score_history = []
     best_score = env.reward_range[0]
+
+    path_to_logs = f"score_logs/{custom_name}.txt"
+    # remove existing txt file so that scores are not appended to old logs
+    try:
+        os.remove(path_to_logs)
+    except OSError:
+        pass
+
     for i in range(hyperparameters['timesteps']):
         obs = env.reset()
         done = False
@@ -65,10 +75,16 @@ def train(env_name, hyperparameters, actor_model, critic_model):
             agent.learn()
             score += reward
             obs = next_state
+        score = round(score, 2) # round score to 2 dp
         score_history.append(score)
         avg_score = np.mean(score_history[-100:])
 
-        if avg_score > best_score:
+        # write scores to score logs
+        with open(path_to_logs, 'a') as f:
+            f.write(str(score))
+            f.write('\n')
+
+        if avg_score > best_score: #save models when avg score has improved
             best_score = avg_score
             agent.save_models()
 
@@ -76,7 +92,7 @@ def train(env_name, hyperparameters, actor_model, critic_model):
             print(f'episode: {i}, score: {score:.2f}, trailing 100 games avg: {np.mean(score_history[-100:]):.2f}')
 
             x = [i+1 for i in range(len(score_history))]
-            filename = f'plots/{env_name}_test.png'
+            filename = f'plots/{custom_name}.png'
             plot_learning_curve(x, score_history, filename, window=100)
 
 def test(env_name, hyperparameters, actor_model):

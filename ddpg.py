@@ -1,4 +1,3 @@
-from multiprocessing.sharedctypes import Value
 import os
 import torch
 import torch.nn as nn
@@ -62,8 +61,8 @@ class ReplayBuffer(object):
 class Network(nn.Module):
     def __init__(self, lr, in_dim, act_dim, l1_size, l2_size, name, chkpt_dir='models'):
         super(Network, self).__init__()
-        self.name = name # name containing environment name and network type
-        self.checkpoint_file = os.path.join(chkpt_dir,name+'_ddpg_test.pth')
+        self.name = name # name containing environment name, network type and custom name
+        self.checkpoint_file = os.path.join(chkpt_dir,name+'.pth')
 
         self.in_dim = in_dim
         self.act_dim = act_dim
@@ -123,23 +122,23 @@ class Network(nn.Module):
 
 
 class DDPG(object):
-    def __init__(self, alph, beta, in_dim, act_dim, env_name, tau, batch_size, l1_size,
+    def __init__(self, alph, beta, in_dim, act_dim, custom_name, tau, batch_size, l1_size,
                  l2_size, gamma, replay_buffer_size):
-        self.env_name = env_name
+        self.custom_name = custom_name
         self.tau = tau
         self.batch_size = batch_size
         self.memory = ReplayBuffer(replay_buffer_size, in_dim, act_dim)
         self.gamma = gamma
 
         self.actor = Network(alph, in_dim, act_dim, l1_size, l2_size,
-                                  name=env_name+'Actor')
+                                  name=custom_name+'_Actor')
         self.critic = Network(beta, in_dim, act_dim, l1_size, l2_size,
-                                    name=env_name+'Critic')
+                                    name=custom_name+'_Critic')
 
         self.target_actor = Network(alph, in_dim, act_dim, l1_size, l2_size,
-                                         name=env_name+'TargetActor')
+                                         name=custom_name+'_TargetActor')
         self.target_critic = Network(beta, in_dim, act_dim, l1_size, l2_size,
-                                           name=env_name+'TargetCritic')
+                                           name=custom_name+'_TargetCritic')
 
         self.noise = OUActionNoise(mu=np.zeros(act_dim))
         self.update_parameters(tau=1)
