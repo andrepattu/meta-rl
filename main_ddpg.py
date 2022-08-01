@@ -46,7 +46,7 @@ def train(env_name, hyperparameters, actor_model, critic_model):
     print("Training")
 
     env = gym.make(env_name)
-    custom_name = env_name + '_ddpg_test' # custom name for experiment
+    custom_name = env_name + '_ddpg_new_baseline' # custom name for experiment
     obs_dim = env.observation_space.shape[0]
     act_dim = env.action_space.shape[0]
     agent = DDPG(alph=hyperparameters['alph'], beta=hyperparameters['beta'], in_dim=[obs_dim], act_dim=act_dim, custom_name=custom_name,
@@ -136,17 +136,30 @@ def main(args):
 		Return:
 			None
 	"""
-	# THESE HYPERPARAMETERS ARE THE ONES THAT PRODUCED THE CURRENT BASELINE
+	# # THESE HYPERPARAMETERS ARE THE ONES THAT PRODUCED THE CURRENT BASELINE
+	# hyperparameters = {
+	# 			'alph': 0.000025, 
+	# 			'beta': 0.00025, 
+	# 			'tau': 0.001, 
+	# 			'batch_size': 64,
+	# 			'l1_size': 400,
+	# 			'l2_size': 300,
+    #             'gamma': 0.99,
+    #             'replay_buffer_size': 1000000,
+    #             'timesteps': 1000,
+	# 		  }
+
+	# THESE HYPERPARAMETERS ARE THE ONES THAT SHOULD PRODUCE A NEW BASELINE
 	hyperparameters = {
-				'alph': 0.000025, 
-				'beta': 0.00025, 
-				'tau': 0.001, 
-				'batch_size': 64,
-				'l1_size': 400,
-				'l2_size': 300,
-                'gamma': 0.99,
-                'replay_buffer_size': 1000000,
-                'timesteps': 1000,
+				'alph': 0.0001, # actor's learning rate
+				'beta': 0.001, # critic's learning rate
+				'tau': 0.002, # target update factor
+				'batch_size': 32,
+				'l1_size': 256,
+				'l2_size': 128,
+                'gamma': 0.98,
+                'replay_buffer_size': 100000,
+                'timesteps': 10000,
 			  }
 
 	# gym env must have both continuous observation and action spaces.
