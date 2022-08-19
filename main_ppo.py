@@ -98,7 +98,7 @@ def main(args):
             Return:
                     None
     """
-    # THESE HYPERPARAMETERS ARE THE ONES THAT PRODUCED THE ORIGINAL BASELINE
+    # THESE HYPERPARAMETERS ARE THE ONES THAT PRODUCED THE ORIGINAL/META-PPO BASELINE
     hyperparameters = {
         'timesteps_per_batch': 2048,
         'max_timesteps_per_episode': 200,
@@ -110,7 +110,7 @@ def main(args):
         'render_every_i': 10
     }
 
-    # # THESE HYPERPARAMETERS ARE FOR THE WEAK BASELINE
+    # # THESE HYPERPARAMETERS ARE FOR THE WEAK/PPO BASELINE
     # hyperparameters = {
     # 			'timesteps_per_batch': 4096, # Number of timesteps to run per batch
     # 			'timesteps_per_episode': 256, # Number of timesteps per episode
