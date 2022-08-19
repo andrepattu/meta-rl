@@ -1,7 +1,6 @@
 import sys
 import argparse
 import gym
-import gym.wrappers as wrap
 import torch
 
 from ppo import PPO, FeedForwardNN
@@ -83,10 +82,10 @@ def test(env, actor_model):
     act_dim = env.action_space.shape[0]
 
     policy = FeedForwardNN(obs_dim, act_dim, mode="testing")
-    # strict is set to False here to catch exceptions where the networks don't exactly match up
-    policy.load_state_dict(torch.load(actor_model), strict=False)
+	# strict is set to False here to catch exceptions where the networks don't exactly match up
+    policy.load_state_dict(torch.load(actor_model, map_location='cuda:0',), strict=False)
 
-    # seperate function to evalaute trained policy
+	# seperate function to evalaute trained policy
     eval_policy(policy=policy, env=env, render=True)
 
 
@@ -98,29 +97,18 @@ def main(args):
             Return:
                     None
     """
-    # THESE HYPERPARAMETERS ARE THE ONES THAT PRODUCED THE ORIGINAL/META-PPO BASELINE
-    hyperparameters = {
-        'timesteps_per_batch': 2048,
-        'max_timesteps_per_episode': 200,
-        'gamma': 0.99,
-        'n_updates_per_iteration': 10,
-        'lr': 3e-4,
-        'clip': 0.2,
-        'render': False,  # True
-        'render_every_i': 10
-    }
 
-    # # THESE HYPERPARAMETERS ARE FOR THE WEAK/PPO BASELINE
-    # hyperparameters = {
-    # 			'timesteps_per_batch': 4096, # Number of timesteps to run per batch
-    # 			'timesteps_per_episode': 256, # Number of timesteps per episode
-    # 			'gamma': 0.95, # Discount factor to be applied when calculating Rewards-To-Go
-    # 			'num_epochs': 15, # Number of epochs to update actor/critic per iteration
-    # 			'alph': 3e-3, # alpha or learning rate
-    # 			'clip': 0.1, # Threshold to clip the ratio during SGA
-    # 			'render': False, # Render the human readable environment during rollout?
-    # 			'render_every_i': 100 # how often to render the environment
-    # 		  }
+    # THESE HYPERPARAMETERS ARE FOR THE WEAK/PPO BASELINE
+    hyperparameters = {
+    			'timesteps_per_batch': 4096, # Number of timesteps to run per batch
+    			'timesteps_per_episode': 256, # Number of timesteps per episode
+    			'gamma': 0.95, # Discount factor to be applied when calculating Rewards-To-Go
+    			'num_epochs': 15, # Number of epochs to update actor/critic per iteration
+    			'alph': 3e-3, # alpha or learning rate
+    			'clip': 0.1, # Threshold to clip the ratio during SGA
+    			'render': False, # Render the human readable environment during rollout?
+    			'render_every_i': 100 # how often to render the environment
+    		  }
 
     # gym env must have both continuous observation and action spaces.
     env = gym.make('Pendulum-v1')
@@ -131,10 +119,7 @@ def main(args):
         train(env=env, hyperparameters=hyperparameters,
               actor_model=args.actor_model, critic_model=args.critic_model)
     else:
-        # pendulum (3,1), MountainCar obs_dim (2,1)
-        test_env = wrap.ResizeObservation(env, shape=(2, 1))
-        # LunarLander does not work because of different actions space
-        test(env=test_env, actor_model=args.actor_model)
+        test(env=env, actor_model=args.actor_model)
 
 
 if __name__ == '__main__':

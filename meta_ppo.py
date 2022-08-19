@@ -18,15 +18,10 @@ class FeedForwardNN(nn.Module):
 		self.device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
 		
 		# Build layers
-		# THESE HYPERPARAMETERS ARE THE ONES THAT PRODUCED THE CURRENT BASELINE
+		# THESE HYPERPARAMETERS ARE THE ONES THAT PRODUCED THE ORIGINAL/META_PPO BASELINE
 		self.l1 = nn.Linear(in_dim, 64)
 		self.l2 = nn.Linear(64, 64)
 		self.l3 = nn.Linear(64, out_dim)
-		
-		# # THESE HYPERPARAMETERS ARE SUGGESTED AFTER REFACTORING TO IMPROVE THE BASELINE PERFORMANCE
-		# self.l1 = nn.Linear(in_dim, 128)
-		# self.l2 = nn.Linear(128, 128)
-		# self.l3 = nn.Linear(128, out_dim)
 
 	def forward(self, obs):
 		# If observation is a numpy array, convert to tensor
