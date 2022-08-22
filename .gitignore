@@ -1,1 +1,4 @@
 __pycache__/
+score_logs/LunarLander
+score_logs/MountainCar
+score_logs/Pendulum
