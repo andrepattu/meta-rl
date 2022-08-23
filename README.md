@@ -3,6 +3,9 @@
 # Setup
 Set up virtual environment using conda or venv. Activate the environment and run `pip install -r requirements.txt'
 
+Potential additional steps:
+- If torch module is not found, install pytorch according to the instructions on pytorch.org
+
 # Usage
 ## PPO
 To train ppo from scratch:
