@@ -11,77 +11,80 @@ from torch.distributions import MultivariateNormal
 
 from utils import plot_learning_curve
 
+
 class FeedForwardNN(nn.Module):
-	def __init__(self, in_dim, out_dim, mode): # input dimensions and output dimensions are integers
-		super(FeedForwardNN, self).__init__()
-		self.mode = mode # training or testing?
-		self.device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
-		
-		# Build layers
-		# THESE HYPERPARAMETERS ARE THE ONES THAT PRODUCED THE ORIGINAL/META_PPO BASELINE
-		self.l1 = nn.Linear(in_dim, 64)
-		self.l2 = nn.Linear(64, 64)
-		self.l3 = nn.Linear(64, out_dim)
+    # input dimensions and output dimensions are integers
+    def __init__(self, in_dim, out_dim, mode):
+        super(FeedForwardNN, self).__init__()
+        self.mode = mode  # training or testing?
+        self.device = torch.device(
+            'cuda:0' if torch.cuda.is_available() else 'cpu')
 
-	def forward(self, obs):
-		# If observation is a numpy array, convert to tensor
-		if isinstance(obs, np.ndarray) and self.mode == "testing": # with cpu
-			obs = np.reshape(obs, -1) # flatten obs array before converting to tensor
-			obs = torch.tensor(obs, dtype=torch.float)
-		elif isinstance(obs, np.ndarray) and self.mode == "training": # with gpu
-			obs = torch.tensor(obs, dtype=torch.float).to(self.device)
+        # Build layers
+        # THESE HYPERPARAMETERS ARE THE ONES THAT PRODUCED THE ORIGINAL/META_PPO BASELINE
+        self.l1 = nn.Linear(in_dim, 64)
+        self.l2 = nn.Linear(64, 64)
+        self.l3 = nn.Linear(64, out_dim)
 
-		act1 = F.relu(self.l1(obs)) # activation modules using relu
-		act2 = F.relu(self.l2(act1))
-		output = self.l3(act2)
+    def forward(self, obs):
+        # If observation is a numpy array, convert to tensor
+        if isinstance(obs, np.ndarray) and self.mode == "testing":  # with cpu
+            # flatten obs array before converting to tensor
+            obs = np.reshape(obs, -1)
+            obs = torch.tensor(obs, dtype=torch.float)
+        elif isinstance(obs, np.ndarray) and self.mode == "training":  # with gpu
+            obs = torch.tensor(obs, dtype=torch.float).to(self.device)
 
-		return output
+        act1 = F.relu(self.l1(obs))  # activation modules using relu
+        act2 = F.relu(self.l2(act1))
+        output = self.l3(act2)
+
+        return output
+
 
 class LossNN(nn.Module):
-	def __init__(self, in_dim, out_dim, mode):
-		"""
-			Initialize the network and set up the layers.
-			Parameters:
-				in_dim - input dimensions as an int
-				out_dim - output dimensions as an int
-			Return:
-				None
-		"""
-		super(LossNN, self).__init__()
+    def __init__(self, in_dim, out_dim, mode):
+        """
+                Initialize the network and set up the layers.
+                Parameters:
+                        in_dim - input dimensions as an int
+                        out_dim - output dimensions as an int
+                Return:
+                        None
+        """
+        super(LossNN, self).__init__()
 
-		self.mode = mode # training or testing?
-		self.device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
+        self.mode = mode  # training or testing?
+        self.device = torch.device(
+            'cuda:0' if torch.cuda.is_available() else 'cpu')
 
-		# THESE HYPERPARAMETERS ARE THE ONES THAT PRODUCED THE CURRENT BASELINE
-		self.layer1 = nn.Linear(in_dim, 64)
-		self.layer2 = nn.Linear(64, 64)
-		self.layer3 = nn.Linear(64, out_dim)
-		
-		# # THESE HYPERPARAMETERS ARE SUGGESTED AFTER REFACTORING TO IMPROVE THE BASELINE PERFORMANCE
-		# self.layer1 = nn.Linear(in_dim, 128)
-		# self.layer2 = nn.Linear(128, 128)
-		# self.layer3 = nn.Linear(128, out_dim)
+        # THESE HYPERPARAMETERS ARE THE ONES THAT PRODUCED THE CURRENT BASELINE
+        self.layer1 = nn.Linear(in_dim, 64)
+        self.layer2 = nn.Linear(64, 64)
+        self.layer3 = nn.Linear(64, out_dim)
 
-	def forward(self, obs):
-		"""
-			Runs a forward pass on the neural network.
-			Parameters:
-				obs - observation to pass as input
-			Return:
-				output - the output of the forward pass
-		"""		
-		# Convert observation to tensor if it's a numpy array
-		if isinstance(obs, np.ndarray) and self.mode == "testing": # with cpu
-			obs = np.reshape(obs, -1) # flatten obs array before converting to tensor
-			obs = torch.tensor(obs, dtype=torch.float)
-		elif isinstance(obs, np.ndarray) and self.mode == "training": # with gpu
-			obs = torch.tensor(obs, dtype=torch.float).to(self.device)
+    def forward(self, obs):
+        """
+                Runs a forward pass on the neural network.
+                Parameters:
+                        obs - observation to pass as input
+                Return:
+                        output - the output of the forward pass
+        """
+        # Convert observation to tensor if it's a numpy array
+        if isinstance(obs, np.ndarray) and self.mode == "testing":  # with cpu
+            # flatten obs array before converting to tensor
+            obs = np.reshape(obs, -1)
+            obs = torch.tensor(obs, dtype=torch.float)
+        elif isinstance(obs, np.ndarray) and self.mode == "training":  # with gpu
+            obs = torch.tensor(obs, dtype=torch.float).to(self.device)
 
-		activation1 = F.relu(self.layer1(obs))
-		activation2 = F.relu(self.layer2(activation1))
-		output = self.layer3(activation2)
+        activation1 = F.relu(self.layer1(obs))
+        activation2 = F.relu(self.layer2(activation1))
+        output = self.layer3(activation2)
 
-		return output
+        return output
+
 
 class Meta_PPO:
     def __init__(self, policy_class, loss_fn, env, **hyperparameters):
@@ -105,12 +108,15 @@ class Meta_PPO:
         self._init_hyperparameters(hyperparameters)
 
         # Initialize actor and critic networks
-        self.actor = policy_class(self.obs_dim, self.act_dim, mode="training") # set mode flag to training by default                                                 
-        self.critic = policy_class(self.obs_dim, 1, mode="training")  # set mode flag to training by default 
+        # set mode flag to training by default
+        self.actor = policy_class(self.obs_dim, self.act_dim, mode="training")
+        # set mode flag to training by default
+        self.critic = policy_class(self.obs_dim, 1, mode="training")
         self.loss_fn = loss_fn(self.obs_dim, 1, mode="training")
 
         # Set networks to gpu device
-        self.device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
+        self.device = torch.device(
+            'cuda:0' if torch.cuda.is_available() else 'cpu')
         self.actor.to(self.device)
         self.critic.to(self.device)
         self.loss_fn.to(self.device)
@@ -130,20 +136,20 @@ class Meta_PPO:
             'batch_returns': [],     # episodic returns in batch
             'actor_losses': [],      # actor losses in current iteration
             'elapsed_timesteps': 0,  # elapsed timesteps
-            'elapsed_iterations': 0, # iterations so far
+            'elapsed_iterations': 0,  # iterations so far
             'time_diff': time.time_ns(),
         }
-        
+
     def train(self, total_timesteps):
         """
             Train the actor and critic networks.
             Parameters:
                 total_timesteps - the total number of timesteps to train for
             Return:
-                None
+                mean_return -  mean return of last 100 timesteps for loss update in outer loop
         """
-        elapsed_timesteps = 0 
-        elapsed_iterations = 0 
+        elapsed_timesteps = 0
+        elapsed_iterations = 0
         self.logger['score_history'] = []
 
         path_to_logs = f"score_logs/{self.custom_name}.txt"
@@ -152,10 +158,10 @@ class Meta_PPO:
             os.remove(path_to_logs)
         except OSError:
             pass
-        
-        while elapsed_timesteps < total_timesteps:                                                                      
+
+        while elapsed_timesteps < total_timesteps:
             # Collecting the batch simulations (set of trajectories)
-            batch_obs, batch_acts, batch_log_probs, batch_rtgs, batch_lengths = self.rollout()                     
+            batch_obs, batch_acts, batch_log_probs, batch_rtgs, batch_lengths = self.rollout()
 
             self.logger['score_history'].append(self.logger['score'])
 
@@ -172,29 +178,34 @@ class Meta_PPO:
             self.logger['elapsed_iterations'] = elapsed_iterations
 
             actor_loss = self.loss_fn(batch_obs).squeeze().to(self.device)
-            values, _ = self.evaluate(batch_obs, batch_acts) # state values using critic network to evaluate
-            adv = batch_rtgs - values.detach() # advantage estimates                                                              
-            adv = (adv - adv.mean()) / (adv.std() + 1e-10) # normalization for better convergence
+            # state values using critic network to evaluate
+            values, _ = self.evaluate(batch_obs, batch_acts)
+            adv = batch_rtgs - values.detach()  # advantage estimates
+            # normalization for better convergence
+            adv = (adv - adv.mean()) / (adv.std() + 1e-10)
 
             elapsed_iterations += 1
 
             # Update policy for number of epochs
-            for _ in range(self.num_epochs):                                                       
+            for _ in range(self.num_epochs):
                 # Calculate values_phi and pi_theta(a_t | s_t)
                 values, curr_log_probs = self.evaluate(batch_obs, batch_acts)
 
                 # Calculate the ratio pi_theta(a_t | s_t) / pi_theta_k(a_t | s_t)
-                ratios = torch.exp(curr_log_probs - batch_log_probs).to(self.device)
+                ratios = torch.exp(
+                    curr_log_probs - batch_log_probs).to(self.device)
 
                 # Calculate surrogate losses.
                 surr1 = ratios * adv
                 surr2 = torch.clamp(ratios, 1 - self.clip, 1 + self.clip) * adv
 
                 # Calculate actor and critic losses.
-                actor_loss = torch.mean(self.loss_fn(batch_obs).squeeze().to(self.device)) # use loss_fn to get actor loss
+                actor_loss = torch.mean(self.loss_fn(batch_obs).squeeze().to(
+                    self.device))  # use loss_fn to get actor loss
                 # actor_loss = (-torch.min(surr1, surr2)).mean()
                 critic_loss = nn.MSELoss()(values, batch_rtgs)
-                loss_fn_loss = nn.MSELoss()(values, batch_rtgs) #  may be wrong to use values for this loss
+                # may be wrong to use values for this loss
+                loss_fn_loss = nn.MSELoss()(values, batch_rtgs)
 
                 # Calculate gradients and perform backward propagation for actor network
                 self.actor_optim.zero_grad()
@@ -216,16 +227,26 @@ class Meta_PPO:
 
             # Save the models according to save frequency
             if elapsed_iterations % self.save_freq == 0:
-                torch.save(self.actor.state_dict(), f'models/{self.custom_name}_actor.pth')
-                torch.save(self.critic.state_dict(), f'models/{self.custom_name}_critic.pth')
-                torch.save(self.loss_fn.state_dict(), f'models/{self.custom_name}_loss_fn.pth')
+                torch.save(self.actor.state_dict(),
+                           f'models/{self.custom_name}_actor.pth')
+                torch.save(self.critic.state_dict(),
+                           f'models/{self.custom_name}_critic.pth')
+                torch.save(self.loss_fn.state_dict(),
+                           f'models/{self.custom_name}_loss_fn.pth')
 
                 # plot graph of average episodic return
-                x = [i+1 for i in range(len(self.logger['score_history']))] # x is the graph's x-axis value
-                plot_learning_curve(x, self.logger['score_history'], f"plots/{self.custom_name}.png")
+                # x is the graph's x-axis value
+                x = [i+1 for i in range(len(self.logger['score_history']))]
+                plot_learning_curve(
+                    x, self.logger['score_history'], f"plots/{self.custom_name}.png")
 
             # Print a summary of the training
             self._log_summary()
+
+            # mean return over the last 100 scores
+            mean_return = np.sum(self.logger['score_history'][-100:]) / 100
+
+            return mean_return
 
     def rollout(self):
         """
@@ -246,15 +267,15 @@ class Meta_PPO:
         batch_returns = []
         batch_rtgs = []
         batch_lengths = []
-        ep_rewards = [] # rewards collected per episode
-        t = 0 # keeps track of elapsed timesteps
+        ep_rewards = []  # rewards collected per episode
+        t = 0  # keeps track of elapsed timesteps
 
         # Keep simulating until the agent has run more than or equal to specified timesteps per batch
         while t < self.timesteps_per_batch:
-            ep_rewards = [] # reinitialize to be empty each batch
+            ep_rewards = []  # reinitialize to be empty each batch
 
             # Reset the environment
-            obs = self.env.reset() # observation
+            obs = self.env.reset()  # observation
             done = False
 
             # Run an episode for the number of timesteps
@@ -266,13 +287,14 @@ class Meta_PPO:
                 batch_obs.append(obs)
 
                 action, log_prob = self.query_action(obs)
-                obs, reward, done, _ = self.env.step(action) # step into env with queried action
+                # step into env with queried action
+                obs, reward, done, _ = self.env.step(action)
 
                 batch_acts.append(action)
                 batch_log_probs.append(log_prob)
                 ep_rewards.append(reward)
 
-                score = round(np.sum(ep_rewards),2)
+                score = round(np.sum(ep_rewards), 2)
                 self.logger['score'] = score
 
                 t += 1
@@ -285,10 +307,13 @@ class Meta_PPO:
             batch_returns.append(ep_rewards)
 
         # Reshape data as tensors in the shape specified in function description
-        batch_obs = torch.tensor(np.array(batch_obs), dtype=torch.float, device=self.device)
-        batch_acts = torch.tensor(np.array(batch_acts), dtype=torch.float, device=self.device)
-        batch_log_probs = torch.tensor(np.array(batch_log_probs), dtype=torch.float, device=self.device)
-        batch_rtgs = self.compute_rtgs(batch_returns)                                                              
+        batch_obs = torch.tensor(
+            np.array(batch_obs), dtype=torch.float, device=self.device)
+        batch_acts = torch.tensor(
+            np.array(batch_acts), dtype=torch.float, device=self.device)
+        batch_log_probs = torch.tensor(
+            np.array(batch_log_probs), dtype=torch.float, device=self.device)
+        batch_rtgs = self.compute_rtgs(batch_returns)
 
         # Log the episodic returns and episodic lengths in this batch.
         self.logger['batch_returns'] = batch_returns
@@ -310,13 +335,14 @@ class Meta_PPO:
         for ep_rewards in reversed(batch_returns):
             discounted_reward = 0
 
-            # Iterate through all rewards in the episode. Iteration is backwards for smoother calculation of each discounted return 
+            # Iterate through all rewards in the episode. Iteration is backwards for smoother calculation of each discounted return
             for reward in reversed(ep_rewards):
                 discounted_reward = reward + discounted_reward * self.gamma
                 batch_rtgs.insert(0, discounted_reward)
 
         # Convert the rewards-to-go into a tensor
-        batch_rtgs = torch.tensor(batch_rtgs, dtype=torch.float).to(self.device)
+        batch_rtgs = torch.tensor(
+            batch_rtgs, dtype=torch.float).to(self.device)
 
         return batch_rtgs
 
@@ -375,18 +401,25 @@ class Meta_PPO:
         """
         # Initialize default values for hyperparameters
         # Algorithm hyperparameters
-        self.timesteps_per_batch = 4800                 # Number of timesteps to run per batch
+        # Number of timesteps to run per batch
+        self.timesteps_per_batch = 4800
         self.timesteps_per_episode = 1600           	# Number of timesteps per episode
-        self.num_epochs = 5                				# Number of epochs to update actor/critic per iteration
+        # Number of epochs to update actor/critic per iteration
+        self.num_epochs = 5
         self.alph = 0.005                               # Alpha or learning rate
-        self.gamma = 0.95                               # Discount factor to be applied when calculating Rewards-To-Go
-        self.clip = 0.2                                 # Threshold to clip the ratio during SGA
+        # Discount factor to be applied when calculating Rewards-To-Go
+        self.gamma = 0.95
+        # Threshold to clip the ratio during SGA
+        self.clip = 0.2
 
         # Miscellaneous parameters
-        self.render = True                              # Render the human readable environment during rollout?
+        # Render the human readable environment during rollout?
+        self.render = True
         self.render_every_i = 10                        # Only render every n iterations
-        self.save_freq = 10                             # How often we save in number of iterations
-        self.seed = None                                # Sets the seed of our program, used for reproducibility of results
+        # How often we save in number of iterations
+        self.save_freq = 10
+        # Sets the seed of our program, used for reproducibility of results
+        self.seed = None
 
         # Change any default values to custom values for specified hyperparameters
         for param, val in hyperparameters.items():
@@ -397,7 +430,7 @@ class Meta_PPO:
             # Check if our seed is valid first
             assert(type(self.seed) == int)
 
-            # Set the seed 
+            # Set the seed
             torch.manual_seed(self.seed)
             print(f"Successfully set seed to {self.seed}")
 
@@ -410,11 +443,14 @@ class Meta_PPO:
         time_diff = str(round(time_diff, 2))
 
         avg_ep_length = str(np.mean(self.logger['batch_lengths']))
-        avg_ep_rewards = str(round(np.mean([np.sum(ep_rewards) for ep_rewards in self.logger['batch_returns']]), 2))
-        avg_actor_loss = str(round(np.mean([torch.Tensor.cpu(losses).float().mean() for losses in self.logger['actor_losses']]), 5))
+        avg_ep_rewards = str(round(np.mean(
+            [np.sum(ep_rewards) for ep_rewards in self.logger['batch_returns']]), 2))
+        avg_actor_loss = str(round(np.mean([torch.Tensor.cpu(
+            losses).float().mean() for losses in self.logger['actor_losses']]), 5))
 
         # Print logging statements
-        print(f"-------------------- Iteration #{elapsed_iterations} --------------------")
+        print(
+            f"-------------------- Iteration #{elapsed_iterations} --------------------")
         print(f"Average Episodic Length: {avg_ep_length}")
         print(f"Average Episodic Return: {avg_ep_rewards}")
         print(f"Average Loss: {avg_actor_loss}")
