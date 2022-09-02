@@ -18,7 +18,6 @@ class FeedForwardNN(nn.Module):
 		self.device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
 		
 		# Build layers
-		# THESE HYPERPARAMETERS ARE FOR THE WEAK/PPO BASELINE
 		self.l1 = nn.Linear(in_dim, 128)
 		self.l2 = nn.Linear(128, 128)
 		self.l3 = nn.Linear(128, out_dim)

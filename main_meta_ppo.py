@@ -24,10 +24,6 @@ def get_args():
 
     # can be 'meta_train' or 'meta_test'
     parser.add_argument('--mode', dest='mode', type=str, default='meta_train')
-    # parser.add_argument('--actor_model', dest='actor_model',
-    #                     type=str, default='')     # your actor model filename
-    # parser.add_argument('--critic_model', dest='critic_model',
-    #                     type=str, default='')   # your critic model filename
     parser.add_argument('--loss_fn', dest='loss_fn',
                         type=str, default='')   # your loss model filename
 
@@ -89,41 +85,34 @@ def main(args):
     Return:
         None
     """
-    # THESE HYPERPARAMETERS ARE THE ONES THAT PRODUCED THE ORIGINAL/META_PPO BASELINE
     hyperparameters = {
-        'timesteps_per_batch': 2048,
-        'max_timesteps_per_episode': 200,
-        'gamma': 0.99,
-        'n_updates_per_iteration': 10,
-        'lr': 3e-4,
-        'clip': 0.2,
-        'render': False,  # True
-        'render_every_i': 10,
-        'agents': 5,  # number of meta-agents
-        # number of outer loop epochs (half of EPG implementation)
-        'epochs': 1000,
-        'V': 64  # number of noise vectors
+        'timesteps_per_batch': 4096,  # Number of timesteps to run per batch
+        'timesteps_per_episode': 256,  # Number of timesteps per episode
+        'gamma': 0.95,  # Discount factor to be applied when calculating Rewards-To-Go
+        'num_epochs': 15,  # Number of epochs to update actor/critic per iteration
+        'alph': 3e-3,  # alpha or learning rate
+        'clip': 0.1,  # Threshold to clip the ratio during SGA
+        'render': False,  # Render the human readable environment during rollout?
+        'render_every_i': 100,  # how often to render the environment
+        'agents': 5, # number of meta-agents per env
+        'epochs': 1000, # number of outer loop epochs (half of EPG implementation)
+        'V': 64 # number of noise vectors
     }
 
-    # gym env must have both continuous observation and action spaces.
-    envs = list(gym.make('Pendulum-v1'), gym.make('MountainCarContinuous-v0'))
-    # env = gym.make('MountainCarContinuous-v0')
-    # env = gym.make('LunarLanderContinuous-v2')
-
-    # single environment only for meta-testing
-    test_env = gym.make('Pendulum-v1')
-
     if args.mode == 'meta_train':  # most of the meta-training logic is in this function
+
+        # gym env must have both continuous observation and action spaces.
+        envs = list(gym.make('Pendulum-v1'), gym.make('MountainCarContinuous-v0'))
+        # env = gym.make('LunarLanderContinuous-v2')
+
         manager = Manager()
         # dict of final mean returns from each agent
         mean_returns = manager.dict()
         processes = []
 
+        loss_fn = LossNN(2, 1, mode="training")
         # loop through both environments
         for env in envs:
-            obs_dim = env.observation_space.shape[0]
-            act_dim = env.action_space.shape[0]
-            loss_fn = LossNN(obs_dim, act_dim, mode="training")
             # create outer loop for loss update
             for epoch in hyperparameters.epochs:
                 vectors = list(np.random.multivariate_normal(
@@ -144,6 +133,9 @@ def main(args):
                     np.sum(vectors) * (agg_return /
                                        (hyperparameters.agents/hyperparameters.V)) * random.choice(vectors)
     else:
+        # single environment only for meta-testing
+        test_env = gym.make('Pendulum-v1')
+
         meta_test(env=test_env, hyperparameters=hyperparameters,
                   loss_fn=args.loss_fn)
 

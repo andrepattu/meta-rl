@@ -99,16 +99,15 @@ def main(args):
                     None
     """
 
-    # THESE HYPERPARAMETERS ARE FOR THE WEAK/PPO BASELINE
     hyperparameters = {
         'timesteps_per_batch': 4096,  # Number of timesteps to run per batch
         'timesteps_per_episode': 256,  # Number of timesteps per episode
         'gamma': 0.95,  # Discount factor to be applied when calculating Rewards-To-Go
-                        'num_epochs': 15,  # Number of epochs to update actor/critic per iteration
-                        'alph': 3e-3,  # alpha or learning rate
-                        'clip': 0.1,  # Threshold to clip the ratio during SGA
-                        'render': False,  # Render the human readable environment during rollout?
-                        'render_every_i': 100  # how often to render the environment
+        'num_epochs': 15,  # Number of epochs to update actor/critic per iteration
+        'alph': 3e-3,  # alpha or learning rate
+        'clip': 0.1,  # Threshold to clip the ratio during SGA
+        'render': False,  # Render the human readable environment during rollout?
+        'render_every_i': 100  # how often to render the environment
     }
 
     # gym env must have both continuous observation and action spaces.

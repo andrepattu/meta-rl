@@ -21,10 +21,10 @@ class FeedForwardNN(nn.Module):
             'cuda:0' if torch.cuda.is_available() else 'cpu')
 
         # Build layers
-        # THESE HYPERPARAMETERS ARE THE ONES THAT PRODUCED THE ORIGINAL/META_PPO BASELINE
-        self.l1 = nn.Linear(in_dim, 64)
-        self.l2 = nn.Linear(64, 64)
-        self.l3 = nn.Linear(64, out_dim)
+        self.conv = nn.Conv1d(in_dim, 128, 8)
+        self.l1 = nn.Linear(8, 128)
+        self.l2 = nn.Linear(128, 128)
+        self.l3 = nn.Linear(128, out_dim)
 
     def forward(self, obs):
         # If observation is a numpy array, convert to tensor
@@ -35,7 +35,9 @@ class FeedForwardNN(nn.Module):
         elif isinstance(obs, np.ndarray) and self.mode == "training":  # with gpu
             obs = torch.tensor(obs, dtype=torch.float).to(self.device)
 
-        act1 = F.relu(self.l1(obs))  # activation modules using relu
+        # convolve and average to address dimensionality issues
+        act_avg = F.relu(self.conv(obs))
+        act1 = F.relu(self.l1(act_avg))  # activation modules using relu
         act2 = F.relu(self.l2(act1))
         output = self.l3(act2)
 
@@ -58,10 +60,9 @@ class LossNN(nn.Module):
         self.device = torch.device(
             'cuda:0' if torch.cuda.is_available() else 'cpu')
 
-        # THESE HYPERPARAMETERS ARE THE ONES THAT PRODUCED THE CURRENT BASELINE
-        self.layer1 = nn.Linear(in_dim, 64)
-        self.layer2 = nn.Linear(64, 64)
-        self.layer3 = nn.Linear(64, out_dim)
+        self.layer1 = nn.Linear(in_dim, 128)
+        self.layer2 = nn.Linear(128, 128)
+        self.layer3 = nn.Linear(128, out_dim)
 
     def forward(self, obs):
         """
@@ -100,7 +101,7 @@ class Meta_PPO:
         assert(type(env.observation_space) == gym.spaces.Box)
         assert(type(env.action_space) == gym.spaces.Box)
 
-        self.custom_name = 'meta-ppo-Pendulum-test'
+        self.custom_name = 'meta-ppo-MountainCar-and-Pendulum-test'
 
         self.env = env
         self.obs_dim = env.observation_space.shape[0]
@@ -227,10 +228,6 @@ class Meta_PPO:
 
             # Save the models according to save frequency
             if elapsed_iterations % self.save_freq == 0:
-                torch.save(self.actor.state_dict(),
-                           f'models/{self.custom_name}_actor.pth')
-                torch.save(self.critic.state_dict(),
-                           f'models/{self.custom_name}_critic.pth')
                 torch.save(self.loss_fn.state_dict(),
                            f'models/{self.custom_name}_loss_fn.pth')
 
