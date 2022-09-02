@@ -1,118 +1,153 @@
 import sys
 import argparse
 import gym
-import gym.wrappers as wrap
 import torch
+import numpy as np
+import random
+from multiprocessing import Process, Manager
 
 from meta_ppo import Meta_PPO, FeedForwardNN, LossNN
-from eval_policy import eval_policy
+
 
 def get_args():
-	"""
-		Description:
-		Parses arguments at command line.
+    """
+    Description:
+        Parses arguments at command line.
 
-		Parameters:
-			None
+    Parameters:
+        None
 
-		Return:
-			args - the arguments parsed
-	"""
-	parser = argparse.ArgumentParser()
+    Return:
+        args - the arguments parsed
+    """
+    parser = argparse.ArgumentParser()
 
-	parser.add_argument('--mode', dest='mode', type=str, default='train')              # can be 'train' or 'test'
-	parser.add_argument('--actor_model', dest='actor_model', type=str, default='')     # your actor model filename
-	parser.add_argument('--critic_model', dest='critic_model', type=str, default='')   # your critic model filename
+    # can be 'meta_train' or 'meta_test'
+    parser.add_argument('--mode', dest='mode', type=str, default='meta_train')
+    # parser.add_argument('--actor_model', dest='actor_model',
+    #                     type=str, default='')     # your actor model filename
+    # parser.add_argument('--critic_model', dest='critic_model',
+    #                     type=str, default='')   # your critic model filename
+    parser.add_argument('--loss_fn', dest='loss_fn',
+                        type=str, default='')   # your loss model filename
 
-	args = parser.parse_args()
+    args = parser.parse_args()
 
-	return args
+    return args
 
-def train(env, hyperparameters, actor_model, critic_model):
-	"""
-		Parameters:
-			env - the environment to train on
-			hyperparameters - a dict of hyperparameters to use, defined in main
-			actor_model - the actor model to load in for training
-			critic_model - the critic model to load in for training
 
-		Return:
-			None
-	"""	
-	print("Training")
-	model = Meta_PPO(policy_class=FeedForwardNN, loss_fn=LossNN, env=env, **hyperparameters)
+def meta_train(env, agent_num, loss_fn, hyperparameters, mean_returns):
+    """
+    Meta trains a single agent only, returning its mean return of the last 100 timesteps
 
-	# Loads in an existing actor/critic model to resume training if specified
-	if actor_model != '' or critic_model != '': # Prevents rewriting of a model pth file if I did not specify both models
-		print(f"Please specify both actor and critic models!")
-		sys.exit(0)
-	elif actor_model != '' and critic_model != '':
-		print(f"Loading in {actor_model} and {critic_model}...")
-		model.actor.load_state_dict(torch.load(actor_model))
-		model.critic.load_state_dict(torch.load(critic_model))
-	else:
-		print(f"Training from scratch.")
+    Parameters:
+        env - the environment to meta_train on
+        hyperparameters - a dict of hyperparameters to use, defined in main
 
-	# total_timesteps is set high but can be killed if learning has converged
-	model.train(total_timesteps=100_000_000)
+    Return:
+        None
+    """
+    print(f"meta training agent {agent_num}")
+    model = Meta_PPO(policy_class=FeedForwardNN,
+                     loss_fn=loss_fn, env=env, **hyperparameters)
+    mean_returns[agent_num] = model.train(total_timesteps=10_000)
 
-def test(env, actor_model):
-	"""
-		Parameters:
-			env - the environment to test the policy on
-			actor_model - the actor model to load in to test
 
-		Return:
-			None
-	"""
-	print(f"Testing {actor_model}")
+def meta_test(env, hyperparameters, loss_fn):
+    """
+    Parameters:
+        env - the environment to meta_test the policy on
+        loss_fn - the shared loss function retrieved from meta-training
 
-	# If the actor model is not specified, then exit
-	if actor_model == '':
-		print(f"Didn't specify model file. Exiting.")
-		sys.exit(0)
+    Return:
+        None
+    """
+    print(f"Meta-Testing {loss_fn}")
 
-	obs_dim = env.observation_space.shape[0]
-	act_dim = env.action_space.shape[0]
+    # If the loss function is not specified, then exit
+    if loss_fn == '':
+        print(f"Didn't specify loss function file. Exiting.")
+        sys.exit(0)
 
-	policy = FeedForwardNN(obs_dim, act_dim, mode="testing")
-	policy.load_state_dict(torch.load(actor_model), strict=False) # strict is set to False here to catch exceptions where the networks don't exactly match up
+    obs_dim = env.observation_space.shape[0]
+    act_dim = env.action_space.shape[0]
 
-	# seperate function to evalaute trained policy
-	eval_policy(policy=policy, env=env, render=True)
+    loss_fn = LossNN(obs_dim, act_dim, mode="testing")
+    # strict is set to False here to ignore non-matching keys
+    loss_fn.load_state_dict(torch.load(loss_fn), strict=False)
+
+    model = Meta_PPO(policy_class=FeedForwardNN,
+                     loss_fn=loss_fn, env=env, **hyperparameters)
+    model.train(total_timesteps=1_000_000)  # equivalent to meta-testing
+
 
 def main(args):
-	"""
-		Parameters:
-			args - the arguments parsed from command line
+    """
+    Parameters:
+        args - the arguments parsed from command line
 
-		Return:
-			None
-	"""
-	# THESE HYPERPARAMETERS ARE THE ONES THAT PRODUCED THE ORIGINAL/META_PPO BASELINE
-	hyperparameters = {
-				'timesteps_per_batch': 2048, 
-				'max_timesteps_per_episode': 200, 
-				'gamma': 0.99, 
-				'n_updates_per_iteration': 10,
-				'lr': 3e-4, 
-				'clip': 0.2,
-				'render': False, # True
-				'render_every_i': 10
-			  }
+    Return:
+        None
+    """
+    # THESE HYPERPARAMETERS ARE THE ONES THAT PRODUCED THE ORIGINAL/META_PPO BASELINE
+    hyperparameters = {
+        'timesteps_per_batch': 2048,
+        'max_timesteps_per_episode': 200,
+        'gamma': 0.99,
+        'n_updates_per_iteration': 10,
+        'lr': 3e-4,
+        'clip': 0.2,
+        'render': False,  # True
+        'render_every_i': 10,
+        'agents': 5,  # number of meta-agents
+        # number of outer loop epochs (half of EPG implementation)
+        'epochs': 1000,
+        'V': 64  # number of noise vectors
+    }
 
-	# gym env must have both continuous observation and action spaces.
-	env = gym.make('Pendulum-v1')
-	# env = gym.make('MountainCarContinuous-v0')
-	# env = gym.make('LunarLanderContinuous-v2')
+    # gym env must have both continuous observation and action spaces.
+    envs = list(gym.make('Pendulum-v1'), gym.make('MountainCarContinuous-v0'))
+    # env = gym.make('MountainCarContinuous-v0')
+    # env = gym.make('LunarLanderContinuous-v2')
 
-	if args.mode == 'train':
-		train(env=env, hyperparameters=hyperparameters, actor_model=args.actor_model, critic_model=args.critic_model)
-	else:
-		test_env = wrap.ResizeObservation(env, shape=(3,1)) # pendulum (3,1), MountainCar obs_dim (2,1)
-		# LunarLander does not work because of different actions space
-		test(env=test_env, actor_model=args.actor_model)
+    # single environment only for meta-testing
+    test_env = gym.make('Pendulum-v1')
+
+    if args.mode == 'meta_train':  # most of the meta-training logic is in this function
+        manager = Manager()
+        # dict of final mean returns from each agent
+        mean_returns = manager.dict()
+        processes = []
+
+        # loop through both environments
+        for env in envs:
+            obs_dim = env.observation_space.shape[0]
+            act_dim = env.action_space.shape[0]
+            loss_fn = LossNN(obs_dim, act_dim, mode="training")
+            # create outer loop for loss update
+            for epoch in hyperparameters.epochs:
+                vectors = list(np.random.multivariate_normal(
+                    0, 1) * hyperparameters.V)
+
+                # create inner loop each agent
+                for agent in hyperparameters.agents:
+                    p = Process(target=meta_train, args=(
+                        env[agent], agent, loss_fn, hyperparameters, mean_returns))
+                    processes.append(p)
+                    p.start()
+                for process in processes:
+                    process.join()
+                agg_return = np.sum(mean_returns) / hyperparameters.agents
+
+                # update loss function parameters using agg_return and random vector pertubation
+                loss_fn = loss_fn + 1/hyperparameters.V * \
+                    np.sum(vectors) * (agg_return /
+                                       (hyperparameters.agents/hyperparameters.V)) * random.choice(vectors)
+    else:
+        meta_test(env=test_env, hyperparameters=hyperparameters,
+                  loss_fn=args.loss_fn)
+
 
 if __name__ == '__main__':
-	args = get_args() # Parse arguments from command line
-	main(args)
+    args = get_args()  # Parse arguments from command line
+    main(args)
