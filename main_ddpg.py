@@ -2,7 +2,6 @@ import sys
 import os
 import argparse
 import gym
-import gym.wrappers as wrap
 import numpy as np
 import torch
 
@@ -136,31 +135,18 @@ def main(args):
 		Return:
 			None
 	"""
-	# THESE HYPERPARAMETERS ARE THE ONES THAT PRODUCED THE OLD BASELINE
-	hyperparameters = {
-				'alph': 0.000025, 
-				'beta': 0.00025, 
-				'tau': 0.001, 
-				'batch_size': 64,
-				'l1_size': 400,
-				'l2_size': 300,
-                'gamma': 0.99,
-                'replay_buffer_size': 1000000,
-                'timesteps': 1000,
-			  }
 
-	# # THESE HYPERPARAMETERS ARE THE ONES THAT SHOULD PRODUCE A NEW BASELINE
-	# hyperparameters = {
-	# 			'alph': 0.0001, # actor's learning rate
-	# 			'beta': 0.001, # critic's learning rate
-	# 			'tau': 0.002, # target update factor
-	# 			'batch_size': 32,
-	# 			'l1_size': 256,
-	# 			'l2_size': 128,
-    #             'gamma': 0.98,
-    #             'replay_buffer_size': 100000,
-    #             'timesteps': 10000,
-	# 		  }
+	hyperparameters = {
+				'alph': 0.0001, # actor's learning rate
+				'beta': 0.001, # critic's learning rate
+				'tau': 0.002, # target update factor
+				'batch_size': 32,
+				'l1_size': 256,
+				'l2_size': 128,
+                'gamma': 0.98,
+                'replay_buffer_size': 100000,
+                'timesteps': 10000,
+			  }
 
 	# gym env must have both continuous observation and action spaces.
 	env_name = 'LunarLanderContinuous-v2'
@@ -170,8 +156,6 @@ def main(args):
 	if args.mode == 'train':
 		train(env_name=env_name, hyperparameters=hyperparameters, actor_model=args.actor_model, critic_model=args.critic_model)
 	else:
-		# test_env = wrap.ResizeObservation(env, shape=(2,1)) # pendulum (3,1), MountainCar obs_dim (2,1)
-		# LunarLander does not work because of different actions space
 		test(env_name=env_name, hyperparameters=hyperparameters, actor_model=args.actor_model)
 
 if __name__ == '__main__':
