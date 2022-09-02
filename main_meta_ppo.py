@@ -28,8 +28,8 @@ def get_args():
     #                     type=str, default='')     # your actor model filename
     # parser.add_argument('--critic_model', dest='critic_model',
     #                     type=str, default='')   # your critic model filename
-    # parser.add_argument('--loss_fn', dest='loss_fn',
-    #                     type=str, default='')   # your loss model filename
+    parser.add_argument('--loss_fn', dest='loss_fn',
+                        type=str, default='')   # your loss model filename
 
     args = parser.parse_args()
 
